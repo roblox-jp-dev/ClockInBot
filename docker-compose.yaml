@@ -3,7 +3,7 @@ version: '3.8'
 services:
   bot:
     build: .
-    restart: always
+    #restart: always
     depends_on:
       - postgres
     env_file:
@@ -18,7 +18,7 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    #restart: always
+    restart: always
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_USER: ${DB_USER:-postgres}

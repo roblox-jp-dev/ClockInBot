@@ -166,5 +166,5 @@ class SetupCog(commands.Cog):
                 ephemeral=True
             )
 
-def setup(bot: commands.Bot):
-    bot.add_cog(SetupCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(SetupCog(bot))

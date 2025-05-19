@@ -78,5 +78,5 @@ class ProjectListCog(commands.Cog):
             logger.error(f"Error in project_list command: {str(e)}")
             await interaction.followup.send(I18n.t("common.error", message=str(e)), ephemeral=True)
 
-def setup(bot: commands.Bot):
-    bot.add_cog(ProjectListCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(ProjectListCog(bot))

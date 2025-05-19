@@ -91,5 +91,5 @@ class UserAddCog(commands.Cog):
             logger.error(f"Error in user_add command: {str(e)}")
             await interaction.followup.send(I18n.t("common.error", locale="ja", message=str(e)))
 
-def setup(bot: commands.Bot):
-    bot.add_cog(UserAddCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(UserAddCog(bot))

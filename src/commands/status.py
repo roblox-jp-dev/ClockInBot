@@ -92,5 +92,5 @@ class StatusCog(commands.Cog):
             logger.error(f"Error in status command: {str(e)}")
             await interaction.followup.send(I18n.t("common.error", message=str(e)), ephemeral=True)
 
-def setup(bot: commands.Bot):
-    bot.add_cog(StatusCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(StatusCog(bot))

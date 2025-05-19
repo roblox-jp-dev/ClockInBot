@@ -56,5 +56,5 @@ class UserRemoveCog(commands.Cog):
             logger.error(f"Error in user_remove command: {str(e)}")
             await interaction.followup.send(I18n.t("common.error", message=str(e)))
 
-def setup(bot: commands.Bot):
-    bot.add_cog(UserRemoveCog(bot))
+async def setup(bot: commands.Bot):
+    await bot.add_cog(UserRemoveCog(bot))

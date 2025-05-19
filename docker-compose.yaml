@@ -11,6 +11,14 @@ services:
     networks:
       - bot-network
     environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DB_HOST=postgres  # サービス名を直接指定
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-clockinbot}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - COMMAND_PREFIX=${COMMAND_PREFIX:-!}
+      - DEBUG=${DEBUG:-False}
       - PYTHONUNBUFFERED=1
 
   postgres:

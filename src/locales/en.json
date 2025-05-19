@@ -1,0 +1,62 @@
+{
+    "common.error": "An error occurred: {message}",
+    "common.success": "Operation completed",
+    "common.notFound": "Not found",
+    "common.invalidInput": "Invalid input",
+    
+    "setup.welcome": "Starting attendance management bot setup",
+    "setup.selectCategory": "Please select or create a category for attendance management",
+    "setup.categoryCreated": "Created category '{name}'",
+    "setup.complete": "Setup completed. Use `/user add` command to add users",
+    
+    "user.added": "Added user {username}",
+    "user.removed": "Removed user {username}",
+    "user.alreadyExists": "User {username} is already registered",
+    "user.notFound": "User {username} is not registered",
+    
+    "attendance.start": "{username} started working on {project}",
+    "attendance.end": "{username} finished working. Working time: {duration}",
+    "attendance.alreadyStarted": "Already working. Please clock out first",
+    "attendance.notStarted": "Not currently working",
+    "attendance.confirmation": "Work status check: Are you still working?",
+    "attendance.autoEnd": "Automatically clocked out due to no response",
+    
+    "project.created": "Created project '{name}'",
+    "project.updated": "Updated project '{name}'",
+    "project.archived": "Archived project '{name}'",
+    "project.notFound": "Project not found",
+    "project.list": "Project List",
+    
+    "status.working": "Working on: {project} (Start time: {start_time})",
+    "status.notWorking": "Not currently working",
+    
+    "today.summary": "Today's work record ({date})",
+    "today.total": "Total time: {hours} hours {minutes} minutes",
+    "today.noRecord": "No work record for today",
+    
+    "log.title": "Work History (Last {limit} records)",
+    "log.noRecord": "No work history",
+    "log.format": "{start} to {end} ({duration}): {project}",
+    
+    "export.generating": "Generating CSV file...",
+    "export.complete": "Exported work records as CSV",
+    "export.failed": "Export failed",
+    
+    "button.startWork": "Clock In",
+    "button.endWork": "Clock Out",
+    "button.confirm": "Confirm",
+    "button.ignore": "Ignore",
+    
+    "modal.project": "Project",
+    "modal.summary": "Work Summary",
+    "modal.summaryPlaceholder": "Briefly describe what you worked on today",
+    "modal.submit": "Submit",
+    
+    "embed.title": "Attendance Status",
+    "embed.status": "Status",
+    "embed.working": "Working",
+    "embed.notWorking": "Not Working",
+    "embed.project": "Project",
+    "embed.startTime": "Start Time",
+    "embed.duration": "Working Time"
+  }

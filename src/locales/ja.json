@@ -1,0 +1,62 @@
+{
+    "common.error": "エラーが発生しました: {message}",
+    "common.success": "処理が完了しました",
+    "common.notFound": "見つかりませんでした",
+    "common.invalidInput": "入力が無効です",
+    
+    "setup.welcome": "勤怠管理Botのセットアップを開始します",
+    "setup.selectCategory": "勤怠管理用のカテゴリを選択または作成してください",
+    "setup.categoryCreated": "カテゴリ「{name}」を作成しました",
+    "setup.complete": "セットアップが完了しました。 `/user add` コマンドでユーザーを追加してください",
+    
+    "user.added": "ユーザー {username} を追加しました",
+    "user.removed": "ユーザー {username} を削除しました",
+    "user.alreadyExists": "ユーザー {username} は既に登録されています",
+    "user.notFound": "ユーザー {username} は登録されていません",
+    
+    "attendance.start": "{username} さんが {project} で勤務を開始しました",
+    "attendance.end": "{username} さんが勤務を終了しました。勤務時間: {duration}",
+    "attendance.alreadyStarted": "既に勤務中です。一度退勤してください",
+    "attendance.notStarted": "現在勤務していません",
+    "attendance.confirmation": "勤務状況確認: 引き続き勤務中ですか？",
+    "attendance.autoEnd": "応答がないため、自動的に勤務を終了しました",
+    
+    "project.created": "プロジェクト「{name}」を作成しました",
+    "project.updated": "プロジェクト「{name}」を更新しました",
+    "project.archived": "プロジェクト「{name}」をアーカイブしました",
+    "project.notFound": "プロジェクトが見つかりません",
+    "project.list": "プロジェクト一覧",
+    
+    "status.working": "勤務中: {project}（開始時間: {start_time}）",
+    "status.notWorking": "現在勤務していません",
+    
+    "today.summary": "本日の勤務記録 ({date})",
+    "today.total": "合計時間: {hours}時間{minutes}分",
+    "today.noRecord": "本日の勤務記録はありません",
+    
+    "log.title": "勤務履歴（最新{limit}件）",
+    "log.noRecord": "勤務履歴はありません",
+    "log.format": "{start}～{end}（{duration}）: {project}",
+    
+    "export.generating": "CSVファイルを生成中です...",
+    "export.complete": "勤務記録をCSVでエクスポートしました",
+    "export.failed": "エクスポートに失敗しました",
+    
+    "button.startWork": "勤務開始",
+    "button.endWork": "勤務終了",
+    "button.confirm": "確認する",
+    "button.ignore": "無視する",
+    
+    "modal.project": "プロジェクト",
+    "modal.summary": "業務内容の要約",
+    "modal.summaryPlaceholder": "今日の作業内容を簡潔に記入してください",
+    "modal.submit": "送信",
+    
+    "embed.title": "勤怠状況",
+    "embed.status": "ステータス",
+    "embed.working": "勤務中",
+    "embed.notWorking": "未出勤",
+    "embed.project": "プロジェクト",
+    "embed.startTime": "開始時間",
+    "embed.duration": "勤務時間"
+  }

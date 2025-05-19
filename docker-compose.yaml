@@ -9,9 +9,16 @@ services:
     env_file:
       - .env
     volumes:
-      - ./src:/app/src
+      # 全プロジェクトをマウント（ビルド結果をオーバーライドしないマッピング）
+      - ./:/app:ro
+      # ログディレクトリは書き込み可能に
+      - ./logs:/app/logs:rw
     networks:
       - bot-network
+    environment:
+      - PYTHONPATH=/app
+      # エラーの詳細表示
+      - PYTHONUNBUFFERED=1
 
   postgres:
     image: postgres:15-alpine

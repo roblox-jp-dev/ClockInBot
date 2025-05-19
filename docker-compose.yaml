@@ -8,9 +8,6 @@ services:
       - postgres
     env_file:
       - .env
-    volumes:
-      - ./src:/app/src:rw
-      - ./logs:/app/logs:rw
     networks:
       - bot-network
     environment:

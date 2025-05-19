@@ -6,12 +6,13 @@ import logging
 from typing import Dict, Any, List, Optional
 import importlib
 
-from .config import DISCORD_TOKEN, COMMAND_PREFIX, DEBUG, DB_CONFIG
-from .database.models import Database
-from .utils.logger import setup_logger
-from .utils.i18n import I18n
-from .tasks.scheduler import setup_scheduler
-from .views.attendance_view import handle_start_work_button, handle_end_work_button
+# Change from relative imports to absolute imports
+from src.config import DISCORD_TOKEN, COMMAND_PREFIX, DEBUG, DB_CONFIG
+from src.database.models import Database
+from src.utils.logger import setup_logger
+from src.utils.i18n import I18n
+from src.tasks.scheduler import setup_scheduler
+from src.views.attendance_view import handle_start_work_button, handle_end_work_button
 
 # ロガーの設定
 logger = setup_logger('bot', DEBUG)

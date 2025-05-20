@@ -47,206 +47,224 @@ class AttendanceView(ui.View):
         
         if is_working:
             # 勤務中の場合は「勤務終了」ボタンのみ
-            self.add_item(EndWorkButton(self.guild_user_id, self.locale))
+            end_button = ui.Button(
+                custom_id=f"end_work_{self.guild_user_id}",
+                label=I18n.t("button.endWork", self.locale),
+                style=ButtonStyle.danger
+            )
+            self.add_item(end_button)
         else:
             # 勤務していない場合は「勤務開始」ボタンのみ
-            self.add_item(StartWorkButton(self.guild_user_id, self.locale))
+            start_button = ui.Button(
+                custom_id=f"start_work_{self.guild_user_id}",
+                label=I18n.t("button.startWork", self.locale),
+                style=ButtonStyle.success
+            )
+            self.add_item(start_button)
 
-class StartWorkButton(ui.Button):
-    """勤務開始ボタン"""
+async def handle_attendance_interaction(interaction: discord.Interaction):
+    """勤怠管理のインタラクション処理"""
+    custom_id = interaction.data.get('custom_id', '')
     
-    def __init__(self, guild_user_id: int, locale: str):
-        super().__init__(
-            custom_id=f"start_work_{guild_user_id}",
-            label=I18n.t("button.startWork", locale),
-            style=ButtonStyle.success
-        )
-        self.guild_user_id = guild_user_id
-        self.locale = locale
+    if custom_id.startswith('start_work_'):
+        await handle_start_work(interaction)
+    elif custom_id.startswith('end_work_'):
+        await handle_end_work(interaction)
+    elif custom_id.startswith('select_project_'):
+        await handle_project_selection(interaction)
+
+async def handle_start_work(interaction: discord.Interaction):
+    """勤務開始ボタンの処理"""
+    await interaction.response.defer(ephemeral=True)
     
-    async def callback(self, interaction: Interaction):
-        """勤務開始ボタンの処理"""
-        await interaction.response.defer(ephemeral=True)
-        
-        # チャンネルからユーザー情報を取得
-        channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
-        if not channel_mapping:
-            await interaction.followup.send(I18n.t("common.error", self.locale, message="Channel not found"), ephemeral=True)
-            return
-        
-        guild_user_id = channel_mapping["guild_user_id"]
-        
-        # アクティブなセッションをチェック
-        active_session = await AttendanceRepository.get_active_session(guild_user_id)
-        if active_session:
-            # 既に勤務中の場合はエラー
-            await interaction.followup.send(I18n.t("attendance.alreadyStarted", self.locale), ephemeral=True)
-            return
-        
-        # プロジェクト一覧を取得
-        projects = await ProjectRepository.get_all_projects(interaction.guild_id)
-        
-        if not projects:
-            await interaction.followup.send(I18n.t("project.notFound", self.locale), ephemeral=True)
-            return
-        
-        # プロジェクト選択のセレクトメニューを作成
-        options = [
-            discord.SelectOption(
-                label=project["name"],
-                value=str(project["id"]),
-                description=project["description"][:100] if project["description"] else None
-            )
-            for project in projects[:25]  # 最大25個
-        ]
-        
-        select = ui.Select(
-            placeholder=I18n.t("modal.project", self.locale),
-            options=options
+    # チャンネルからユーザー情報を取得
+    channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
+    if not channel_mapping:
+        await interaction.followup.send("エラー: チャンネルが見つかりません", ephemeral=True)
+        return
+    
+    guild_user_id = channel_mapping["guild_user_id"]
+    
+    # サーバー設定から言語を取得
+    from ..database.repository import GuildRepository
+    guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+    locale = guild_settings["locale"] if guild_settings else "ja"
+    
+    # アクティブなセッションをチェック
+    active_session = await AttendanceRepository.get_active_session(guild_user_id)
+    if active_session:
+        # 既に勤務中の場合はエラー
+        await interaction.followup.send(I18n.t("attendance.alreadyStarted", locale), ephemeral=True)
+        return
+    
+    # プロジェクト一覧を取得
+    projects = await ProjectRepository.get_all_projects(interaction.guild_id)
+    
+    if not projects:
+        await interaction.followup.send(I18n.t("project.notFound", locale), ephemeral=True)
+        return
+    
+    # プロジェクト選択のセレクトメニューを作成
+    options = [
+        discord.SelectOption(
+            label=project["name"],
+            value=str(project["id"]),
+            description=project["description"][:100] if project["description"] else None
         )
-        
-        async def select_callback(select_interaction: discord.Interaction):
-            await select_interaction.response.defer(ephemeral=True)
-            
-            project_id = int(select.values[0])
-            
-            # プロジェクト情報を取得
-            project = await ProjectRepository.get_project(project_id)
-            
-            # 勤務開始を記録
-            session = await AttendanceRepository.start_session(guild_user_id, project_id)
-            
-            # 固定メッセージを更新
-            await update_attendance_message(
-                interaction.channel,
-                channel_mapping["pinned_message_id"],
-                guild_user_id,
-                self.locale
-            )
-            
-            # 確認メッセージを送信（5秒後に削除）
-            user = interaction.user
-            await select_interaction.followup.send(
-                I18n.t("attendance.start", self.locale, username=user.display_name, project=project["name"]),
-                ephemeral=True,
-                delete_after=5
-            )
-        
-        select.callback = select_callback
-        
-        # Viewを作成してセレクトメニューを追加
-        view = ui.View()
-        view.add_item(select)
-        
-        await interaction.followup.send(
-            "勤務するプロジェクトを選択してください：",
-            view=view,
+        for project in projects[:25]  # 最大25個
+    ]
+    
+    select = ui.Select(
+        placeholder=I18n.t("modal.project", locale),
+        options=options,
+        custom_id=f"select_project_{guild_user_id}"
+    )
+    
+    # Viewを作成してセレクトメニューを追加
+    view = ui.View()
+    view.add_item(select)
+    
+    await interaction.followup.send(
+        "勤務するプロジェクトを選択してください：",
+        view=view,
+        ephemeral=True
+    )
+
+async def handle_project_selection(interaction: discord.Interaction):
+    """プロジェクト選択の処理"""
+    await interaction.response.defer(ephemeral=True)
+    
+    # セレクトメニューの値を取得
+    project_id = int(interaction.data['values'][0])
+    
+    # チャンネルからユーザー情報を取得
+    channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
+    if not channel_mapping:
+        await interaction.followup.send("エラー: チャンネルが見つかりません", ephemeral=True)
+        return
+    
+    guild_user_id = channel_mapping["guild_user_id"]
+    
+    # サーバー設定から言語を取得
+    from ..database.repository import GuildRepository
+    guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+    locale = guild_settings["locale"] if guild_settings else "ja"
+    
+    # プロジェクト情報を取得
+    project = await ProjectRepository.get_project(project_id)
+    
+    # 勤務開始を記録
+    session = await AttendanceRepository.start_session(guild_user_id, project_id)
+    
+    # 固定メッセージを更新
+    await update_attendance_message(
+        interaction.channel,
+        channel_mapping["pinned_message_id"],
+        guild_user_id,
+        locale
+    )
+    
+    # 確認メッセージを送信（5秒後に削除）
+    user = interaction.user
+    await interaction.followup.send(
+        I18n.t("attendance.start", locale, username=user.display_name, project=project["name"]),
+        ephemeral=True,
+        delete_after=5
+    )
+
+async def handle_end_work(interaction: discord.Interaction):
+    """勤務終了ボタンの処理"""
+    # チャンネルからユーザー情報を取得
+    channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
+    if not channel_mapping:
+        await interaction.response.send_message("エラー: チャンネルが見つかりません", ephemeral=True)
+        return
+    
+    guild_user_id = channel_mapping["guild_user_id"]
+    
+    # サーバー設定から言語を取得
+    from ..database.repository import GuildRepository
+    guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+    locale = guild_settings["locale"] if guild_settings else "ja"
+    
+    # アクティブなセッションをチェック
+    active_session = await AttendanceRepository.get_active_session(guild_user_id)
+    if not active_session:
+        # 勤務していない場合はエラー
+        await interaction.response.send_message(
+            I18n.t("attendance.notStarted", locale), 
             ephemeral=True
         )
-
-class EndWorkButton(ui.Button):
-    """勤務終了ボタン"""
+        return
     
-    def __init__(self, guild_user_id: int, locale: str):
-        super().__init__(
-            custom_id=f"end_work_{guild_user_id}",
-            label=I18n.t("button.endWork", locale),
-            style=ButtonStyle.danger
-        )
-        self.guild_user_id = guild_user_id
-        self.locale = locale
+    # プロジェクト情報を取得
+    project = await ProjectRepository.get_project(active_session["project_id"])
     
-    async def callback(self, interaction: Interaction):
-        """勤務終了ボタンの処理"""
-        # チャンネルからユーザー情報を取得
-        channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
-        if not channel_mapping:
-            await interaction.response.send_message(
-                I18n.t("common.error", self.locale, message="Channel not found"), 
-                ephemeral=True
-            )
-            return
+    # 勤務終了時に要約を求めるかどうかをチェック
+    require_modal = project.get("require_modal", True) if project else True
+    
+    end_summary = None
+    
+    if require_modal:
+        # 要約入力モーダルを表示（defer しない）
+        modal = EndWorkSummaryModal(locale)
+        await interaction.response.send_modal(modal)
         
-        guild_user_id = channel_mapping["guild_user_id"]
+        # モーダルの入力を待機
+        await modal.wait()
         
-        # アクティブなセッションをチェック
-        active_session = await AttendanceRepository.get_active_session(guild_user_id)
-        if not active_session:
-            # 勤務していない場合はエラー
-            await interaction.response.send_message(
-                I18n.t("attendance.notStarted", self.locale), 
-                ephemeral=True
-            )
-            return
-        
-        # プロジェクト情報を取得
-        project = await ProjectRepository.get_project(active_session["project_id"])
-        
-        # 勤務終了時に要約を求めるかどうかをチェック
-        require_modal = project.get("require_modal", True) if project else True
-        
-        end_summary = None
-        
+        # 入力された要約を取得
+        end_summary = modal.summary_value
+    else:
+        # モーダルが不要な場合はdeferを実行
+        await interaction.response.defer(ephemeral=True)
+    
+    # 勤務終了を記録
+    updated_session = await AttendanceRepository.end_session(
+        active_session["id"],
+        end_summary=end_summary
+    )
+    
+    if not updated_session:
+        error_msg = I18n.t("common.error", locale, message="Failed to end session")
         if require_modal:
-            # 要約入力モーダルを表示（defer しない）
-            modal = EndWorkSummaryModal(self.locale)
-            await interaction.response.send_modal(modal)
-            
-            # モーダルの入力を待機
-            await modal.wait()
-            
-            # 入力された要約を取得
-            end_summary = modal.summary_value
+            await interaction.followup.send(error_msg, ephemeral=True)
         else:
-            # モーダルが不要な場合はdeferを実行
-            await interaction.response.defer(ephemeral=True)
-        
-        # 勤務終了を記録
-        updated_session = await AttendanceRepository.end_session(
-            active_session["id"],
-            end_summary=end_summary
-        )
-        
-        if not updated_session:
-            error_msg = I18n.t("common.error", self.locale, message="Failed to end session")
-            if require_modal:
-                await interaction.followup.send(error_msg, ephemeral=True)
-            else:
-                await interaction.followup.send(error_msg, ephemeral=True)
-            return
-        
-        # 勤務時間を計算
-        duration = updated_session["end_time"] - updated_session["start_time"]
-        hours, remainder = divmod(int(duration.total_seconds()), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
-        
-        # 固定メッセージを更新
-        await update_attendance_message(
-            interaction.channel,
-            channel_mapping["pinned_message_id"],
-            guild_user_id,
-            self.locale
-        )
-        
-        # 勤務終了の埋め込みメッセージを送信（全員に見える）
-        await send_work_completion_message(
-            interaction.channel,
-            interaction.user,
-            updated_session,
-            project,
-            duration_str,
-            self.locale
-        )
-        
-        # 確認メッセージを送信（5秒後に削除）
-        user = interaction.user
-        success_msg = I18n.t("attendance.end", self.locale, username=user.display_name, duration=duration_str)
-        
-        if require_modal:
-            await interaction.followup.send(success_msg, ephemeral=True, delete_after=5)
-        else:
-            await interaction.followup.send(success_msg, ephemeral=True, delete_after=5)
+            await interaction.followup.send(error_msg, ephemeral=True)
+        return
+    
+    # 勤務時間を計算
+    duration = updated_session["end_time"] - updated_session["start_time"]
+    hours, remainder = divmod(int(duration.total_seconds()), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+    
+    # 固定メッセージを更新
+    await update_attendance_message(
+        interaction.channel,
+        channel_mapping["pinned_message_id"],
+        guild_user_id,
+        locale
+    )
+    
+    # 勤務終了の埋め込みメッセージを送信（全員に見える）
+    await send_work_completion_message(
+        interaction.channel,
+        interaction.user,
+        updated_session,
+        project,
+        duration_str,
+        locale
+    )
+    
+    # 確認メッセージを送信（5秒後に削除）
+    user = interaction.user
+    success_msg = I18n.t("attendance.end", locale, username=user.display_name, duration=duration_str)
+    
+    if require_modal:
+        await interaction.followup.send(success_msg, ephemeral=True, delete_after=5)
+    else:
+        await interaction.followup.send(success_msg, ephemeral=True, delete_after=5)
 
 async def create_attendance_embed(
     guild_user_id: int,
@@ -359,6 +377,28 @@ async def create_or_update_attendance_message(
     message = await channel.send(embed=embed, view=view)
     
     return message
+
+async def restore_attendance_message(
+    channel: discord.TextChannel,
+    message_id: int,
+    guild_user_id: int,
+    locale: str = "ja"
+):
+    """Bot再起動時に勤怠メッセージのViewを復元"""
+    try:
+        message = await channel.fetch_message(message_id)
+        
+        # 現在の状態に基づいてViewを作成
+        active_session = await AttendanceRepository.get_active_session(guild_user_id)
+        view = AttendanceView(guild_user_id, locale)
+        view.update_buttons(is_working=bool(active_session))
+        
+        # メッセージのViewを更新
+        await message.edit(view=view)
+        
+    except discord.NotFound:
+        # メッセージが見つからない場合は何もしない
+        pass
 
 async def send_work_completion_message(
     channel: discord.TextChannel,

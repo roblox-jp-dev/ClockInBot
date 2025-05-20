@@ -51,6 +51,9 @@ async def on_ready():
         I18n.load_locales()
         logger.info("Locales loaded")
         
+        # 固定メッセージのViewを復元
+        await restore_attendance_views()
+        
         # スケジューラの設定と開始
         scheduler = setup_scheduler(bot)
         scheduler.start()
@@ -79,7 +82,56 @@ async def on_ready():
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
     """インタラクション（ボタンクリックなど）の処理"""
-    pass
+    if interaction.type == discord.InteractionType.component:
+        await handle_component_interaction(interaction)
+
+async def handle_component_interaction(interaction: discord.Interaction):
+    """コンポーネント（ボタン、セレクトメニュー）のインタラクション処理"""
+    from src.views.attendance_view import handle_attendance_interaction
+    from src.views.confirm_view import handle_confirmation_interaction
+    
+    custom_id = interaction.data.get('custom_id', '')
+    
+    # 勤怠管理関連のインタラクション
+    if custom_id.startswith('start_work_') or custom_id.startswith('end_work_') or custom_id.startswith('select_project_'):
+        await handle_attendance_interaction(interaction)
+    
+    # 確認関連のインタラクション
+    elif custom_id in ['confirm', 'ignore']:
+        await handle_confirmation_interaction(interaction)
+
+async def restore_attendance_views():
+    """Bot再起動時に固定メッセージのViewを復元"""
+    from src.database.repository import ChannelRepository, GuildRepository
+    from src.views.attendance_view import restore_attendance_message
+    
+    try:
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            # 全てのチャンネルマッピングを取得
+            rows = await conn.fetch('''
+                SELECT cm.*, gs.locale
+                FROM channel_mappings cm
+                JOIN guild_users gu ON cm.guild_user_id = gu.id
+                JOIN guild_settings gs ON gu.guild_id = gs.guild_id
+            ''')
+            
+            for row in rows:
+                try:
+                    channel = bot.get_channel(row['channel_id'])
+                    if channel:
+                        await restore_attendance_message(
+                            channel=channel,
+                            message_id=row['pinned_message_id'],
+                            guild_user_id=row['guild_user_id'],
+                            locale=row['locale']
+                        )
+                        logger.info(f"Restored attendance view for channel {channel.name}")
+                except Exception as e:
+                    logger.error(f"Failed to restore view for channel {row['channel_id']}: {str(e)}")
+    
+    except Exception as e:
+        logger.error(f"Error restoring attendance views: {str(e)}")
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):

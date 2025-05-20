@@ -71,7 +71,7 @@ class UserAddCog(commands.Cog):
             channel_name = f"勤怠-{user.display_name}"
             channel = await category.create_text_channel(channel_name, overwrites=overwrites)
             
-            # 勤怠管理用の固定メッセージを作成
+            # 勤怠管理用の固定メッセージを作成（ピン留めしない）
             message = await create_or_update_attendance_message(
                 channel=channel,
                 guild_user_id=guild_user["id"],

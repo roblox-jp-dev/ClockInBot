@@ -117,23 +117,19 @@ class StartWorkButton(ui.Button):
             session = await AttendanceRepository.start_session(guild_user_id, project_id)
             
             # 固定メッセージを更新
-            channel = interaction.channel
-            pinned_message = await channel.fetch_message(channel_mapping["pinned_message_id"])
+            await update_attendance_message(
+                interaction.channel,
+                channel_mapping["pinned_message_id"],
+                guild_user_id,
+                self.locale
+            )
             
-            # Embedを更新
-            embed = await create_attendance_embed(guild_user_id, self.locale)
-            
-            # Viewを更新（勤務中状態に）
-            view = AttendanceView(guild_user_id, self.locale)
-            view.update_buttons(is_working=True)
-            
-            await pinned_message.edit(embed=embed, view=view)
-            
-            # 確認メッセージを送信
+            # 確認メッセージを送信（5秒後に削除）
             user = interaction.user
             await select_interaction.followup.send(
                 I18n.t("attendance.start", self.locale, username=user.display_name, project=project["name"]),
-                ephemeral=True
+                ephemeral=True,
+                delete_after=5
             )
         
         select.callback = select_callback
@@ -226,26 +222,31 @@ class EndWorkButton(ui.Button):
         duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
         
         # 固定メッセージを更新
-        channel = interaction.channel
-        pinned_message = await channel.fetch_message(channel_mapping["pinned_message_id"])
+        await update_attendance_message(
+            interaction.channel,
+            channel_mapping["pinned_message_id"],
+            guild_user_id,
+            self.locale
+        )
         
-        # Embedを更新
-        embed = await create_attendance_embed(guild_user_id, self.locale)
+        # 勤務終了の埋め込みメッセージを送信（全員に見える）
+        await send_work_completion_message(
+            interaction.channel,
+            interaction.user,
+            updated_session,
+            project,
+            duration_str,
+            self.locale
+        )
         
-        # Viewを更新（未勤務状態に）
-        view = AttendanceView(guild_user_id, self.locale)
-        view.update_buttons(is_working=False)
-        
-        await pinned_message.edit(embed=embed, view=view)
-        
-        # 確認メッセージを送信
+        # 確認メッセージを送信（5秒後に削除）
         user = interaction.user
         success_msg = I18n.t("attendance.end", self.locale, username=user.display_name, duration=duration_str)
         
         if require_modal:
-            await interaction.followup.send(success_msg, ephemeral=True)
+            await interaction.followup.send(success_msg, ephemeral=True, delete_after=5)
         else:
-            await interaction.followup.send(success_msg, ephemeral=True)
+            await interaction.followup.send(success_msg, ephemeral=True, delete_after=5)
 
 async def create_attendance_embed(
     guild_user_id: int,
@@ -281,27 +282,50 @@ async def create_attendance_embed(
             inline=True
         )
         
-        # 開始時間を表示
+        # 開始時間を表示（タイムスタンプとして）
         start_time = active_session["start_time"]
+        # タイムスタンプに変換（Unixエポック秒）
+        start_timestamp = int(start_time.timestamp())
         embed.add_field(
             name=I18n.t("embed.startTime", locale),
-            value=start_time.strftime("%H:%M:%S"),
-            inline=True
-        )
-        
-        # 経過時間を計算して表示
-        now = datetime.now(timezone.utc) if start_time.tzinfo else datetime.now()
-        duration = now - start_time
-        hours, remainder = divmod(duration.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        
-        embed.add_field(
-            name=I18n.t("embed.duration", locale),
-            value=f"{hours:02}:{minutes:02}:{seconds:02}",
+            value=f"<t:{start_timestamp}:t>",
             inline=True
         )
     
     return embed
+
+async def update_attendance_message(
+    channel: discord.TextChannel,
+    current_message_id: int,
+    guild_user_id: int,
+    locale: str = "ja"
+):
+    """固定メッセージのローテーション更新"""
+    
+    try:
+        # 現在の固定メッセージを取得
+        current_message = await channel.fetch_message(current_message_id)
+        
+        # 新しいEmbedとViewを作成
+        new_embed = await create_attendance_embed(guild_user_id, locale)
+        active_session = await AttendanceRepository.get_active_session(guild_user_id)
+        new_view = AttendanceView(guild_user_id, locale)
+        new_view.update_buttons(is_working=bool(active_session))
+        
+        # 現在のメッセージの内容で新しいメッセージを送信
+        old_message = await channel.send(
+            embed=current_message.embeds[0] if current_message.embeds else None,
+            view=None  # 古いViewは無効化
+        )
+        
+        # 現在のメッセージを新しい内容で編集
+        await current_message.edit(embed=new_embed, view=new_view)
+        
+        # channel_mappingsのpinned_message_idはそのまま（current_message_idを維持）
+        
+    except discord.NotFound:
+        # メッセージが見つからない場合は新規作成
+        await create_or_update_attendance_message(channel, guild_user_id, None, locale)
 
 async def create_or_update_attendance_message(
     channel: discord.TextChannel,
@@ -331,10 +355,67 @@ async def create_or_update_attendance_message(
             # メッセージが見つからない場合は新規作成
             pass
     
-    # 新しいメッセージを送信
+    # 新しいメッセージを送信（ピン留めしない）
     message = await channel.send(embed=embed, view=view)
     
-    # メッセージをピン止め
-    await message.pin()
-    
     return message
+
+async def send_work_completion_message(
+    channel: discord.TextChannel,
+    user: discord.User,
+    session: Dict[str, Any],
+    project: Optional[Dict[str, Any]],
+    duration_str: str,
+    locale: str = "ja"
+):
+    """勤務終了時の埋め込みメッセージを送信"""
+    
+    embed = discord.Embed(
+        title="🎯 勤務完了",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc)
+    )
+    
+    # ユーザー情報
+    embed.set_author(
+        name=user.display_name,
+        icon_url=user.avatar.url if user.avatar else user.default_avatar.url
+    )
+    
+    # プロジェクト名
+    project_name = project["name"] if project else "Unknown"
+    embed.add_field(
+        name="📋 プロジェクト",
+        value=project_name,
+        inline=True
+    )
+    
+    # 勤務時間
+    embed.add_field(
+        name="⏱️ 勤務時間",
+        value=duration_str,
+        inline=True
+    )
+    
+    # 勤務期間（開始時間と終了時間）
+    start_time = session["start_time"]
+    end_time = session["end_time"]
+    
+    start_timestamp = int(start_time.timestamp())
+    end_timestamp = int(end_time.timestamp())
+    
+    embed.add_field(
+        name="📅 勤務期間",
+        value=f"<t:{start_timestamp}:t> ～ <t:{end_timestamp}:t>",
+        inline=False
+    )
+    
+    # 業務内容（要約がある場合）
+    if session.get("end_summary"):
+        embed.add_field(
+            name="📝 業務内容",
+            value=session["end_summary"],
+            inline=False
+        )
+    
+    await channel.send(embed=embed)

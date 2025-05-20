@@ -22,10 +22,9 @@ class UserRemoveCog(commands.Cog):
     @app_commands.guild_only()
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(
-        user="削除するユーザー",
-        delete_channel="専用チャンネルも削除するか（デフォルト: False）"
+        user="削除するユーザー"
     )
-    async def user_remove(self, interaction: discord.Interaction, user: discord.User, delete_channel: bool = False):
+    async def user_remove(self, interaction: discord.Interaction, user: discord.User):
         """ユーザーを削除するコマンド"""
         await interaction.response.defer(ephemeral=True)
         
@@ -42,12 +41,20 @@ class UserRemoveCog(commands.Cog):
             channel_mapping = await ChannelRepository.get_channel_mapping(guild_user["id"])
             
             # チャンネルを削除
-            if delete_channel and channel_mapping:
+            if channel_mapping:
                 channel = interaction.guild.get_channel(channel_mapping["channel_id"])
                 if channel:
-                    await channel.delete()
+                    try:
+                        await channel.delete()
+                        logger.info(f"Deleted channel {channel.name} for user {user.display_name}")
+                    except discord.Forbidden:
+                        logger.warning(f"No permission to delete channel {channel.name}")
+                    except discord.NotFound:
+                        logger.warning(f"Channel {channel_mapping['channel_id']} not found")
+                    except Exception as e:
+                        logger.error(f"Error deleting channel: {str(e)}")
             
-            # ユーザーを削除（カスケード削除でチャンネルマッピングも削除される）
+            # ユーザーを削除（カスケード削除でチャンネルマッピングや勤怠記録も削除される）
             await UserRepository.remove_guild_user(guild_id, user.id)
             
             await interaction.followup.send(I18n.t("user.removed", username=user.display_name))

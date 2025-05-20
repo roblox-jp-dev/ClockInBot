@@ -45,6 +45,23 @@ class Database:
                 )
             ''')
             
+            # projects テーブル作成（ON DELETE SET NULLに修正）
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS projects (
+                    id                        BIGSERIAL    PRIMARY KEY,
+                    guild_id                  BIGINT       NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
+                    name                      TEXT         NOT NULL,
+                    description               TEXT,
+                    created_by_user_id        BIGINT       REFERENCES guild_users(id) ON DELETE SET NULL,
+                    default_timeout           INT          NOT NULL DEFAULT 3600,
+                    check_interval            INT          NOT NULL DEFAULT 1800,
+                    require_confirmation      BOOLEAN      NOT NULL DEFAULT true,
+                    require_modal             BOOLEAN      NOT NULL DEFAULT true,
+                    is_archived               BOOLEAN      NOT NULL DEFAULT false,
+                    created_at                TIMESTAMPTZ  NOT NULL DEFAULT now()
+                )
+            ''')
+            
             # channel_mappings テーブル作成
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS channel_mappings (
@@ -54,23 +71,6 @@ class Database:
                     pinned_message_id    BIGINT       NOT NULL,
                     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
                     UNIQUE (guild_user_id)
-                )
-            ''')
-            
-            # projects テーブル作成
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS projects (
-                    id                        BIGSERIAL    PRIMARY KEY,
-                    guild_id                  BIGINT       NOT NULL REFERENCES guild_settings(guild_id) ON DELETE CASCADE,
-                    name                      TEXT         NOT NULL,
-                    description               TEXT,
-                    created_by_user_id        BIGINT       REFERENCES guild_users(id),
-                    default_timeout           INT          NOT NULL DEFAULT 3600,
-                    check_interval            INT          NOT NULL DEFAULT 1800,
-                    require_confirmation      BOOLEAN      NOT NULL DEFAULT true,
-                    require_modal             BOOLEAN      NOT NULL DEFAULT true,
-                    is_archived               BOOLEAN      NOT NULL DEFAULT false,
-                    created_at                TIMESTAMPTZ  NOT NULL DEFAULT now()
                 )
             ''')
             

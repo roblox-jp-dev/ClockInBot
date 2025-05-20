@@ -47,24 +47,24 @@ class AttendanceView(ui.View):
         
         if is_working:
             # 勤務中の場合は「勤務終了」ボタンのみ
-            end_button = ui.Button(
-                custom_id=f"end_work_{self.guild_user_id}",
-                label=I18n.t("button.endWork", self.locale),
-                style=ButtonStyle.danger
-            )
-            end_button.callback = self.handle_end_work
-            self.add_item(end_button)
+            self.add_item(EndWorkButton(self.guild_user_id, self.locale))
         else:
             # 勤務していない場合は「勤務開始」ボタンのみ
-            start_button = ui.Button(
-                custom_id=f"start_work_{self.guild_user_id}",
-                label=I18n.t("button.startWork", self.locale),
-                style=ButtonStyle.success
-            )
-            start_button.callback = self.handle_start_work
-            self.add_item(start_button)
+            self.add_item(StartWorkButton(self.guild_user_id, self.locale))
+
+class StartWorkButton(ui.Button):
+    """勤務開始ボタン"""
     
-    async def handle_start_work(self, interaction: Interaction):
+    def __init__(self, guild_user_id: int, locale: str):
+        super().__init__(
+            custom_id=f"start_work_{guild_user_id}",
+            label=I18n.t("button.startWork", locale),
+            style=ButtonStyle.success
+        )
+        self.guild_user_id = guild_user_id
+        self.locale = locale
+    
+    async def callback(self, interaction: Interaction):
         """勤務開始ボタンの処理"""
         await interaction.response.defer(ephemeral=True)
         
@@ -147,8 +147,20 @@ class AttendanceView(ui.View):
             view=view,
             ephemeral=True
         )
+
+class EndWorkButton(ui.Button):
+    """勤務終了ボタン"""
     
-    async def handle_end_work(self, interaction: Interaction):
+    def __init__(self, guild_user_id: int, locale: str):
+        super().__init__(
+            custom_id=f"end_work_{guild_user_id}",
+            label=I18n.t("button.endWork", locale),
+            style=ButtonStyle.danger
+        )
+        self.guild_user_id = guild_user_id
+        self.locale = locale
+    
+    async def callback(self, interaction: Interaction):
         """勤務終了ボタンの処理"""
         await interaction.response.defer(ephemeral=True)
         
@@ -231,7 +243,7 @@ async def create_attendance_embed(
     embed = discord.Embed(
         title=I18n.t("embed.title", locale),
         color=discord.Color.green() if active_session else discord.Color.light_grey(),
-        timestamp=datetime.now(timezone.utc)  # タイムゾーン情報を追加
+        timestamp=datetime.now(timezone.utc)
     )
     
     # 勤務中かどうかを表示

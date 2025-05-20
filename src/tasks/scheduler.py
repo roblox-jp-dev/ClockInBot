@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import discord
 from typing import Dict, Any, List, Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -7,9 +7,9 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from ..database.repository import (
     AttendanceRepository, ProjectRepository, UserRepository, ChannelRepository, GuildRepository,
-    ConfirmationRepository  # 追加
+    ConfirmationRepository
 )
-from ..database.models import Database  # 追加
+from ..database.models import Database
 from ..views.confirm_view import send_confirmation_request
 from ..utils.logger import setup_logger
 
@@ -86,8 +86,8 @@ class AttendanceScheduler:
                     locale = row['locale']
                     channel_id = row['channel_id']
                     
-                    # 現在時刻と開始時刻の差を計算
-                    now = datetime.now()
+                    # 現在時刻を取得（タイムゾーン情報を統一）
+                    now = datetime.now(timezone.utc) if start_time.tzinfo else datetime.now()
                     elapsed = now - start_time
                     
                     # 確認が必要な場合のみ処理
@@ -109,7 +109,15 @@ class AttendanceScheduler:
                             else:
                                 # 最後の確認から一定時間経過した場合、自動終了
                                 last_confirmation = last_confirmations[0]
-                                time_since_last = now - last_confirmation['prompt_time']
+                                prompt_time = last_confirmation['prompt_time']
+                                
+                                # タイムゾーン情報を統一
+                                if prompt_time.tzinfo and not now.tzinfo:
+                                    now = now.replace(tzinfo=timezone.utc)
+                                elif not prompt_time.tzinfo and now.tzinfo:
+                                    prompt_time = prompt_time.replace(tzinfo=timezone.utc)
+                                
+                                time_since_last = now - prompt_time
                                 
                                 if time_since_last.total_seconds() > default_timeout:
                                     # 自動終了処理

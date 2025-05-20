@@ -80,20 +80,7 @@ async def on_ready():
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
     """インタラクション（ボタンクリックなど）の処理"""
-    # ボタンクリックの処理
-    if interaction.type == discord.InteractionType.component:
-        # カスタムIDを取得
-        custom_id = interaction.data.get("custom_id", "")
-        
-        # 勤務開始ボタンの処理
-        if custom_id.startswith("start_work_"):
-            await handle_start_work_button(interaction)
-        
-        # 勤務終了ボタンの処理
-        elif custom_id.startswith("end_work_"):
-            await handle_end_work_button(interaction)
-        
-        # その他のボタンはdiscord.pyのイベントハンドラで処理
+    pass
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):

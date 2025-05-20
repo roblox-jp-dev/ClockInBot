@@ -6,8 +6,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from ..database.repository import (
-    AttendanceRepository, ProjectRepository, UserRepository, ChannelRepository, GuildRepository
+    AttendanceRepository, ProjectRepository, UserRepository, ChannelRepository, GuildRepository,
+    ConfirmationRepository  # 追加
 )
+from ..database.models import Database  # 追加
 from ..views.confirm_view import send_confirmation_request
 from ..utils.logger import setup_logger
 
@@ -50,19 +52,6 @@ class AttendanceScheduler:
     async def _check_active_sessions(self):
         """アクティブなセッションを確認し、必要に応じて確認メッセージを送信"""
         try:
-            # データベースからアクティブなセッションを取得
-            # 実際の実装では全てのアクティブセッションを取得する必要がある
-            
-            # 以下のようなクエリを実行する形になる
-            # SELECT a.*, p.*, g.*, u.*, c.*
-            # FROM attendance_sessions a
-            # JOIN projects p ON a.project_id = p.id
-            # JOIN guild_users u ON a.guild_user_id = u.id
-            # JOIN guild_settings g ON u.guild_id = g.guild_id
-            # LEFT JOIN channel_mappings c ON u.id = c.guild_user_id
-            # WHERE a.end_time IS NULL
-            
-            # デモ実装のため、ここではダミーデータを使用
             pool = Database.get_pool()
             async with pool.acquire() as conn:
                 rows = await conn.fetch('''

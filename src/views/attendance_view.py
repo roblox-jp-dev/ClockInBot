@@ -162,12 +162,13 @@ class EndWorkButton(ui.Button):
     
     async def callback(self, interaction: Interaction):
         """勤務終了ボタンの処理"""
-        await interaction.response.defer(ephemeral=True)
-        
         # チャンネルからユーザー情報を取得
         channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
         if not channel_mapping:
-            await interaction.followup.send(I18n.t("common.error", self.locale, message="Channel not found"), ephemeral=True)
+            await interaction.response.send_message(
+                I18n.t("common.error", self.locale, message="Channel not found"), 
+                ephemeral=True
+            )
             return
         
         guild_user_id = channel_mapping["guild_user_id"]
@@ -176,7 +177,10 @@ class EndWorkButton(ui.Button):
         active_session = await AttendanceRepository.get_active_session(guild_user_id)
         if not active_session:
             # 勤務していない場合はエラー
-            await interaction.followup.send(I18n.t("attendance.notStarted", self.locale), ephemeral=True)
+            await interaction.response.send_message(
+                I18n.t("attendance.notStarted", self.locale), 
+                ephemeral=True
+            )
             return
         
         # プロジェクト情報を取得
@@ -185,8 +189,10 @@ class EndWorkButton(ui.Button):
         # 勤務終了時に要約を求めるかどうかをチェック
         require_modal = project.get("require_modal", True) if project else True
         
+        end_summary = None
+        
         if require_modal:
-            # 要約入力モーダルを表示
+            # 要約入力モーダルを表示（defer しない）
             modal = EndWorkSummaryModal(self.locale)
             await interaction.response.send_modal(modal)
             
@@ -196,7 +202,8 @@ class EndWorkButton(ui.Button):
             # 入力された要約を取得
             end_summary = modal.summary_value
         else:
-            end_summary = None
+            # モーダルが不要な場合はdeferを実行
+            await interaction.response.defer(ephemeral=True)
         
         # 勤務終了を記録
         updated_session = await AttendanceRepository.end_session(
@@ -204,9 +211,17 @@ class EndWorkButton(ui.Button):
             end_summary=end_summary
         )
         
+        if not updated_session:
+            error_msg = I18n.t("common.error", self.locale, message="Failed to end session")
+            if require_modal:
+                await interaction.followup.send(error_msg, ephemeral=True)
+            else:
+                await interaction.followup.send(error_msg, ephemeral=True)
+            return
+        
         # 勤務時間を計算
         duration = updated_session["end_time"] - updated_session["start_time"]
-        hours, remainder = divmod(duration.seconds, 3600)
+        hours, remainder = divmod(int(duration.total_seconds()), 3600)
         minutes, seconds = divmod(remainder, 60)
         duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
         
@@ -225,10 +240,12 @@ class EndWorkButton(ui.Button):
         
         # 確認メッセージを送信
         user = interaction.user
-        await interaction.followup.send(
-            I18n.t("attendance.end", self.locale, username=user.display_name, duration=duration_str),
-            ephemeral=True
-        )
+        success_msg = I18n.t("attendance.end", self.locale, username=user.display_name, duration=duration_str)
+        
+        if require_modal:
+            await interaction.followup.send(success_msg, ephemeral=True)
+        else:
+            await interaction.followup.send(success_msg, ephemeral=True)
 
 async def create_attendance_embed(
     guild_user_id: int,

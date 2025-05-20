@@ -88,17 +88,18 @@ class AttendanceScheduler:
                     
                     # 現在時刻を取得（タイムゾーン情報を統一）
                     now = datetime.now(timezone.utc) if start_time.tzinfo else datetime.now()
-                    elapsed = now - start_time
+                    elapsed_seconds = (now - start_time).total_seconds()
                     
                     # 確認が必要な場合のみ処理
-                    if require_confirmation:
-                        # 経過時間がチェック間隔を超えた場合に確認
-                        if elapsed.total_seconds() % check_interval < 60:  # 1分以内なら確認
-                            # 最後の確認から十分時間が経過しているか確認
-                            last_confirmations = await ConfirmationRepository.get_pending_confirmations(session_id)
-                            
-                            if not last_confirmations:
-                                # まだ確認がない場合は確認を送信
+                    if require_confirmation and elapsed_seconds >= check_interval:
+                        # 最後の確認から十分時間が経過しているか確認
+                        last_confirmations = await ConfirmationRepository.get_pending_confirmations(session_id)
+                        
+                        if not last_confirmations:
+                            # まだ確認がない場合は確認を送信
+                            # ただし、開始時間 + check_interval の時間に達している場合のみ
+                            intervals_passed = int(elapsed_seconds // check_interval)
+                            if intervals_passed > 0:
                                 await send_confirmation_request(
                                     self.bot,
                                     session_id,
@@ -106,28 +107,54 @@ class AttendanceScheduler:
                                     channel_id,
                                     locale
                                 )
+                                logger.info(f"Sent confirmation request for session {session_id}")
+                        else:
+                            # 最後の確認から一定時間経過した場合、自動終了をチェック
+                            for confirmation in last_confirmations:
+                                if not confirmation['responded']:
+                                    prompt_time = confirmation['prompt_time']
+                                    
+                                    # タイムゾーン情報を統一
+                                    if prompt_time.tzinfo and not now.tzinfo:
+                                        now = now.replace(tzinfo=timezone.utc)
+                                    elif not prompt_time.tzinfo and now.tzinfo:
+                                        prompt_time = prompt_time.replace(tzinfo=timezone.utc)
+                                    
+                                    time_since_last = now - prompt_time
+                                    
+                                    if time_since_last.total_seconds() > default_timeout:
+                                        # 自動終了処理
+                                        await AttendanceRepository.end_session(
+                                            session_id,
+                                            end_summary="自動終了: 応答なし",
+                                            status="auto"
+                                        )
+                                        
+                                        logger.info(f"Auto ended session {session_id} for user {user_id} due to no response")
+                                        break
                             else:
-                                # 最後の確認から一定時間経過した場合、自動終了
-                                last_confirmation = last_confirmations[0]
-                                prompt_time = last_confirmation['prompt_time']
+                                # すべての確認に応答済みの場合、新しい確認間隔に達したかチェック
+                                latest_confirmation = max(last_confirmations, key=lambda x: x['prompt_time'])
+                                latest_time = latest_confirmation['prompt_time']
                                 
                                 # タイムゾーン情報を統一
-                                if prompt_time.tzinfo and not now.tzinfo:
+                                if latest_time.tzinfo and not now.tzinfo:
                                     now = now.replace(tzinfo=timezone.utc)
-                                elif not prompt_time.tzinfo and now.tzinfo:
-                                    prompt_time = prompt_time.replace(tzinfo=timezone.utc)
+                                elif not latest_time.tzinfo and now.tzinfo:
+                                    latest_time = latest_time.replace(tzinfo=timezone.utc)
                                 
-                                time_since_last = now - prompt_time
+                                time_since_latest = now - latest_time
                                 
-                                if time_since_last.total_seconds() > default_timeout:
-                                    # 自動終了処理
-                                    await AttendanceRepository.end_session(
+                                if time_since_latest.total_seconds() >= check_interval:
+                                    # 新しい確認を送信
+                                    await send_confirmation_request(
+                                        self.bot,
                                         session_id,
-                                        end_summary="自動終了: 応答なし",
-                                        status="auto"
+                                        user_id,
+                                        channel_id,
+                                        locale
                                     )
-                                    
-                                    logger.info(f"Auto ended session {session_id} for user {user_id} due to no response")
+                                    logger.info(f"Sent periodic confirmation request for session {session_id}")
         
         except Exception as e:
             logger.error(f"Error in check_active_sessions: {str(e)}")

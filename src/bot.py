@@ -12,7 +12,6 @@ from src.database.models import Database
 from src.utils.logger import setup_logger
 from src.utils.i18n import I18n
 from src.tasks.scheduler import setup_scheduler
-from src.views.attendance_view import handle_start_work_button, handle_end_work_button
 
 # ロガーの設定
 logger = setup_logger('bot', DEBUG)

@@ -2,6 +2,7 @@ import discord
 from discord import ui, Interaction, ButtonStyle
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
+import asyncio
 
 from ..database.repository import AttendanceRepository, ProjectRepository, UserRepository, ChannelRepository
 from ..utils.i18n import I18n
@@ -156,11 +157,12 @@ async def handle_project_selection(interaction: discord.Interaction):
     # 勤務開始を記録
     session = await AttendanceRepository.start_session(guild_user_id, project_id)
     
-    # 固定メッセージを更新（勤務中状態に）
-    await update_attendance_message(
+    # 固定メッセージを更新（作成したセッション情報を直接渡す）
+    await update_attendance_message_with_session(
         interaction.channel,
         channel_mapping["pinned_message_id"],
         guild_user_id,
+        session,  # 作成したセッション情報を直接渡す
         locale
     )
     
@@ -273,12 +275,14 @@ async def handle_end_work(interaction: discord.Interaction):
 async def create_attendance_embed(
     guild_user_id: int,
     locale: str = "ja",
-    user_data: Dict[str, Any] = None
+    user_data: Dict[str, Any] = None,
+    active_session: Optional[Dict[str, Any]] = None  # 追加
 ) -> discord.Embed:
     """勤怠状況を表示するEmbedを作成"""
     
-    # アクティブなセッションを取得
-    active_session = await AttendanceRepository.get_active_session(guild_user_id)
+    # セッション情報が渡されていない場合のみデータベースから取得
+    if active_session is None:
+        active_session = await AttendanceRepository.get_active_session(guild_user_id)
     
     embed = discord.Embed(
         title=I18n.t("embed.title", locale),
@@ -393,6 +397,31 @@ async def update_attendance_message(
         # メッセージが見つからない場合は新規作成
         await create_or_update_attendance_message(channel, guild_user_id, None, locale)
 
+async def update_attendance_message_with_session(
+    channel: discord.TextChannel,
+    message_id: int,
+    guild_user_id: int,
+    session: Dict[str, Any],
+    locale: str = "ja"
+):
+    """固定メッセージを指定されたセッション情報で更新"""
+    
+    try:
+        # メッセージを取得
+        message = await channel.fetch_message(message_id)
+        
+        # 新しいEmbedとViewを作成（セッション情報を直接渡す）
+        new_embed = await create_attendance_embed(guild_user_id, locale, active_session=session)
+        new_view = AttendanceView(guild_user_id, locale)
+        new_view.update_buttons(is_working=True)  # セッションがあるので勤務中
+        
+        # メッセージを更新
+        await message.edit(embed=new_embed, view=new_view)
+        
+    except discord.NotFound:
+        # メッセージが見つからない場合は新規作成
+        await create_or_update_attendance_message(channel, guild_user_id, None, locale)
+
 async def update_attendance_message_with_completion(
     channel: discord.TextChannel,
     message_id: int,
@@ -486,5 +515,3 @@ async def restore_attendance_message(
     except discord.NotFound:
         # メッセージが見つからない場合は何もしない
         pass
-
-import asyncio  # 追加

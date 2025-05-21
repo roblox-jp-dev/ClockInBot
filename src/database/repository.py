@@ -327,6 +327,17 @@ class AttendanceRepository:
             return dict(row) if row else None
     
     @staticmethod
+    async def update_session_message_id(session_id: int, message_id: int) -> bool:
+        """セッションに開始メッセージIDを記録"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                'UPDATE attendance_sessions SET start_message_id = $1 WHERE id = $2',
+                message_id, session_id
+            )
+            return 'UPDATE' in result
+    
+    @staticmethod
     async def get_today_sessions(guild_user_id: int) -> List[Dict[str, Any]]:
         """ユーザーの今日のセッションを取得"""
         pool = Database.get_pool()

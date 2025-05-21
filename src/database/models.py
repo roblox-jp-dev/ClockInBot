@@ -83,6 +83,7 @@ class Database:
                     start_time           TIMESTAMPTZ  NOT NULL,
                     end_time             TIMESTAMPTZ,
                     end_summary          TEXT,
+                    start_message_id     BIGINT,
                     status               TEXT         NOT NULL
                                         CHECK (status IN ('manual','auto'))
                                         DEFAULT 'manual',
@@ -101,6 +102,11 @@ class Database:
                     summary              TEXT,
                     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now()
                 )
+            ''')
+            
+            # 既存のテーブルにstart_message_idカラムを追加（存在しない場合のみ）
+            await conn.execute('''
+                ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS start_message_id BIGINT
             ''')
 
     @classmethod

@@ -207,7 +207,10 @@ async def handle_project_selection(interaction: discord.Interaction):
     )
     
     # チャンネルに新しいメッセージとして送信
-    await interaction.channel.send(embed=start_embed)
+    start_message = await interaction.channel.send(embed=start_embed)
+    
+    # 送信したメッセージのIDをセッションに記録
+    await AttendanceRepository.update_session_message_id(session["id"], start_message.id)
 
 async def handle_end_work(interaction: discord.Interaction):
     """勤務終了ボタンの処理"""
@@ -276,16 +279,24 @@ async def handle_end_work(interaction: discord.Interaction):
     minutes, seconds = divmod(remainder, 60)
     duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
     
-    # 固定メッセージを勤務完了情報で更新
-    await update_attendance_message_with_completion(
+    # 固定メッセージを未勤務状態に更新
+    await update_attendance_message(
         interaction.channel,
         channel_mapping["pinned_message_id"],
         guild_user_id,
-        updated_session,
-        project,
-        duration_str,
         locale
     )
+    
+    # 勤務開始メッセージ（メッセージA）を勤務完了メッセージに編集
+    if active_session.get("start_message_id"):
+        await update_start_message_to_completion(
+            interaction.channel,
+            active_session["start_message_id"],
+            updated_session,
+            project,
+            duration_str,
+            locale
+        )
     
     # 確認メッセージを送信（5秒後に削除）
     user = interaction.user
@@ -446,44 +457,32 @@ async def update_attendance_message_with_session(
         # メッセージが見つからない場合は新規作成
         await create_or_update_attendance_message(channel, guild_user_id, None, locale)
 
-async def update_attendance_message_with_completion(
+async def update_start_message_to_completion(
     channel: discord.TextChannel,
-    message_id: int,
-    guild_user_id: int,
+    start_message_id: int,
     session: Dict[str, Any],
     project: Optional[Dict[str, Any]],
     duration_str: str,
     locale: str = "ja"
 ):
-    """固定メッセージを勤務完了情報で更新"""
+    """勤務開始メッセージを勤務完了メッセージに編集"""
     
     try:
-        # メッセージを取得
-        message = await channel.fetch_message(message_id)
+        # 勤務開始メッセージを取得
+        start_message = await channel.fetch_message(start_message_id)
         
         # 勤務完了のEmbedを作成
         completion_embed = await create_completion_embed(session, project, duration_str, locale)
         
-        # 未勤務状態のViewを作成
-        new_view = AttendanceView(guild_user_id, locale)
-        new_view.update_buttons(is_working=False)
-        
-        # メッセージを勤務完了情報で更新
-        await message.edit(embed=completion_embed, view=new_view)
-        
-        # 10秒後に通常の勤怠状況表示に戻す
-        await asyncio.sleep(10)
-        
-        # 通常の勤怠状況Embedに戻す
-        normal_embed = await create_attendance_embed(guild_user_id, locale)
-        await message.edit(embed=normal_embed, view=new_view)
+        # メッセージを勤務完了情報で編集
+        await start_message.edit(embed=completion_embed)
         
     except discord.NotFound:
-        # メッセージが見つからない場合は新規作成
-        await create_or_update_attendance_message(channel, guild_user_id, None, locale)
-    except Exception:
-        # エラーが発生した場合は通常更新にフォールバック
-        await update_attendance_message(channel, message_id, guild_user_id, locale)
+        # メッセージが見つからない場合は何もしない
+        pass
+    except Exception as e:
+        # エラーをログに記録
+        print(f"Failed to update start message to completion: {str(e)}")
 
 async def create_or_update_attendance_message(
     channel: discord.TextChannel,

@@ -156,7 +156,7 @@ async def handle_project_selection(interaction: discord.Interaction):
     # 勤務開始を記録
     session = await AttendanceRepository.start_session(guild_user_id, project_id)
     
-    # 固定メッセージを更新
+    # 固定メッセージを更新（勤務中状態に）
     await update_attendance_message(
         interaction.channel,
         channel_mapping["pinned_message_id"],
@@ -164,13 +164,24 @@ async def handle_project_selection(interaction: discord.Interaction):
         locale
     )
     
-    # 確認メッセージを送信（5秒後に削除）
-    user = interaction.user
-    await interaction.followup.send(
-        I18n.t("attendance.start", locale, username=user.display_name, project=project["name"]),
-        ephemeral=True,
-        delete_after=5
-    )
+    # プロジェクト選択メッセージを削除（選択画面を消す）
+    try:
+        # 元のメッセージを削除するために、選択完了メッセージで置き換え
+        user = interaction.user
+        await interaction.edit_original_response(
+            content=I18n.t("attendance.start", locale, username=user.display_name, project=project["name"]),
+            view=None  # Viewを削除
+        )
+        
+        # 5秒後に完了メッセージも削除
+        await interaction.delete_original_response(delay=5)
+    except:
+        # エラーの場合は通常の確認メッセージ
+        await interaction.followup.send(
+            I18n.t("attendance.start", locale, username=interaction.user.display_name, project=project["name"]),
+            ephemeral=True,
+            delete_after=5
+        )
 
 async def handle_end_work(interaction: discord.Interaction):
     """勤務終了ボタンの処理"""
@@ -239,18 +250,11 @@ async def handle_end_work(interaction: discord.Interaction):
     minutes, seconds = divmod(remainder, 60)
     duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
     
-    # 固定メッセージを更新
-    await update_attendance_message(
+    # 固定メッセージを勤務完了情報で更新
+    await update_attendance_message_with_completion(
         interaction.channel,
         channel_mapping["pinned_message_id"],
         guild_user_id,
-        locale
-    )
-    
-    # 勤務終了の埋め込みメッセージを送信（全員に見える）
-    await send_work_completion_message(
-        interaction.channel,
-        interaction.user,
         updated_session,
         project,
         duration_str,
@@ -312,114 +316,18 @@ async def create_attendance_embed(
     
     return embed
 
-async def update_attendance_message(
-    channel: discord.TextChannel,
-    current_message_id: int,
-    guild_user_id: int,
-    locale: str = "ja"
-):
-    """固定メッセージのローテーション更新"""
-    
-    try:
-        # 現在の固定メッセージを取得
-        current_message = await channel.fetch_message(current_message_id)
-        
-        # 新しいEmbedとViewを作成
-        new_embed = await create_attendance_embed(guild_user_id, locale)
-        active_session = await AttendanceRepository.get_active_session(guild_user_id)
-        new_view = AttendanceView(guild_user_id, locale)
-        new_view.update_buttons(is_working=bool(active_session))
-        
-        # 現在のメッセージの内容で新しいメッセージを送信
-        old_message = await channel.send(
-            embed=current_message.embeds[0] if current_message.embeds else None,
-            view=None  # 古いViewは無効化
-        )
-        
-        # 現在のメッセージを新しい内容で編集
-        await current_message.edit(embed=new_embed, view=new_view)
-        
-        # channel_mappingsのpinned_message_idはそのまま（current_message_idを維持）
-        
-    except discord.NotFound:
-        # メッセージが見つからない場合は新規作成
-        await create_or_update_attendance_message(channel, guild_user_id, None, locale)
-
-async def create_or_update_attendance_message(
-    channel: discord.TextChannel,
-    guild_user_id: int,
-    pinned_message_id: Optional[int] = None,
-    locale: str = "ja"
-):
-    """勤怠管理用の固定メッセージを作成または更新"""
-    
-    # Embedを作成
-    embed = await create_attendance_embed(guild_user_id, locale)
-    
-    # アクティブなセッションをチェック
-    active_session = await AttendanceRepository.get_active_session(guild_user_id)
-    
-    # Viewを作成
-    view = AttendanceView(guild_user_id, locale)
-    view.update_buttons(is_working=bool(active_session))
-    
-    if pinned_message_id:
-        try:
-            # 既存のメッセージを取得して更新
-            message = await channel.fetch_message(pinned_message_id)
-            await message.edit(embed=embed, view=view)
-            return message
-        except discord.NotFound:
-            # メッセージが見つからない場合は新規作成
-            pass
-    
-    # 新しいメッセージを送信（ピン留めしない）
-    message = await channel.send(embed=embed, view=view)
-    
-    return message
-
-async def restore_attendance_message(
-    channel: discord.TextChannel,
-    message_id: int,
-    guild_user_id: int,
-    locale: str = "ja"
-):
-    """Bot再起動時に勤怠メッセージのViewを復元"""
-    try:
-        message = await channel.fetch_message(message_id)
-        
-        # 現在の状態に基づいてViewを作成
-        active_session = await AttendanceRepository.get_active_session(guild_user_id)
-        view = AttendanceView(guild_user_id, locale)
-        view.update_buttons(is_working=bool(active_session))
-        
-        # メッセージのViewを更新
-        await message.edit(view=view)
-        
-    except discord.NotFound:
-        # メッセージが見つからない場合は何もしない
-        pass
-
-async def send_work_completion_message(
-    channel: discord.TextChannel,
-    user: discord.User,
+async def create_completion_embed(
     session: Dict[str, Any],
     project: Optional[Dict[str, Any]],
     duration_str: str,
     locale: str = "ja"
-):
-    """勤務終了時の埋め込みメッセージを送信"""
+) -> discord.Embed:
+    """勤務完了Embedを作成"""
     
     embed = discord.Embed(
         title="🎯 勤務完了",
         color=discord.Color.blue(),
         timestamp=datetime.now(timezone.utc)
-    )
-    
-    # ユーザー情報
-    embed.set_author(
-        name=user.display_name,
-        icon_url=user.avatar.url if user.avatar else user.default_avatar.url
     )
     
     # プロジェクト名
@@ -458,4 +366,125 @@ async def send_work_completion_message(
             inline=False
         )
     
-    await channel.send(embed=embed)
+    return embed
+
+async def update_attendance_message(
+    channel: discord.TextChannel,
+    message_id: int,
+    guild_user_id: int,
+    locale: str = "ja"
+):
+    """固定メッセージを現在の勤怠状況で更新"""
+    
+    try:
+        # メッセージを取得
+        message = await channel.fetch_message(message_id)
+        
+        # 新しいEmbedとViewを作成
+        new_embed = await create_attendance_embed(guild_user_id, locale)
+        active_session = await AttendanceRepository.get_active_session(guild_user_id)
+        new_view = AttendanceView(guild_user_id, locale)
+        new_view.update_buttons(is_working=bool(active_session))
+        
+        # メッセージを更新
+        await message.edit(embed=new_embed, view=new_view)
+        
+    except discord.NotFound:
+        # メッセージが見つからない場合は新規作成
+        await create_or_update_attendance_message(channel, guild_user_id, None, locale)
+
+async def update_attendance_message_with_completion(
+    channel: discord.TextChannel,
+    message_id: int,
+    guild_user_id: int,
+    session: Dict[str, Any],
+    project: Optional[Dict[str, Any]],
+    duration_str: str,
+    locale: str = "ja"
+):
+    """固定メッセージを勤務完了情報で更新"""
+    
+    try:
+        # メッセージを取得
+        message = await channel.fetch_message(message_id)
+        
+        # 勤務完了のEmbedを作成
+        completion_embed = await create_completion_embed(session, project, duration_str, locale)
+        
+        # 未勤務状態のViewを作成
+        new_view = AttendanceView(guild_user_id, locale)
+        new_view.update_buttons(is_working=False)
+        
+        # メッセージを勤務完了情報で更新
+        await message.edit(embed=completion_embed, view=new_view)
+        
+        # 10秒後に通常の勤怠状況表示に戻す
+        await asyncio.sleep(10)
+        
+        # 通常の勤怠状況Embedに戻す
+        normal_embed = await create_attendance_embed(guild_user_id, locale)
+        await message.edit(embed=normal_embed, view=new_view)
+        
+    except discord.NotFound:
+        # メッセージが見つからない場合は新規作成
+        await create_or_update_attendance_message(channel, guild_user_id, None, locale)
+    except Exception:
+        # エラーが発生した場合は通常更新にフォールバック
+        await update_attendance_message(channel, message_id, guild_user_id, locale)
+
+async def create_or_update_attendance_message(
+    channel: discord.TextChannel,
+    guild_user_id: int,
+    pinned_message_id: Optional[int] = None,
+    locale: str = "ja"
+):
+    """勤怠管理用の固定メッセージを作成または更新"""
+    
+    # Embedを作成
+    embed = await create_attendance_embed(guild_user_id, locale)
+    
+    # アクティブなセッションをチェック
+    active_session = await AttendanceRepository.get_active_session(guild_user_id)
+    
+    # Viewを作成
+    view = AttendanceView(guild_user_id, locale)
+    view.update_buttons(is_working=bool(active_session))
+    
+    if pinned_message_id:
+        try:
+            # 既存のメッセージを取得して更新
+            message = await channel.fetch_message(pinned_message_id)
+            await message.edit(embed=embed, view=view)
+            return message
+        except discord.NotFound:
+            # メッセージが見つからない場合は新規作成
+            pass
+    
+    # 新しいメッセージを送信
+    message = await channel.send(embed=embed, view=view)
+    
+    return message
+
+async def restore_attendance_message(
+    channel: discord.TextChannel,
+    message_id: int,
+    guild_user_id: int,
+    locale: str = "ja"
+):
+    """Bot再起動時に勤怠メッセージのViewを復元"""
+    try:
+        message = await channel.fetch_message(message_id)
+        
+        # 現在の状態に基づいてViewを作成
+        active_session = await AttendanceRepository.get_active_session(guild_user_id)
+        view = AttendanceView(guild_user_id, locale)
+        view.update_buttons(is_working=bool(active_session))
+        
+        # メッセージのViewを更新
+        await message.edit(view=view)
+        
+    except discord.NotFound:
+        # メッセージが見つからない場合は何もしない
+        pass
+
+import asyncio  # 追加

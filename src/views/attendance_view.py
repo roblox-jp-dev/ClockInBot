@@ -1,7 +1,7 @@
 import discord
 from discord import ui, Interaction, ButtonStyle
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set
 import asyncio
 
 from ..database.repository import AttendanceRepository, ProjectRepository, UserRepository, ChannelRepository
@@ -411,9 +411,16 @@ async def refresh_attendance_message(
     channel: discord.TextChannel,
     old_message_id: int,
     guild_user_id: int,
-    locale: str = "ja"
+    locale: str = "ja",
+    updating_channels: Optional[Set[int]] = None
 ):
     """固定メッセージを削除して最新位置に再作成"""
+    
+    if updating_channels is None:
+        updating_channels = set()
+    
+    # 無限ループ回避のため、更新中フラグを設定
+    updating_channels.add(channel.id)
     
     try:
         # 古いメッセージを削除
@@ -443,6 +450,9 @@ async def refresh_attendance_message(
         
     except Exception as e:
         print(f"Error refreshing attendance message: {str(e)}")
+    finally:
+        # 更新完了後、フラグを削除
+        updating_channels.discard(channel.id)
 
 async def update_attendance_message(
     channel: discord.TextChannel,

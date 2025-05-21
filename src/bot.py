@@ -3,7 +3,7 @@ import os
 import discord
 from discord.ext import commands
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 import importlib
 
 # Change from relative imports to absolute imports
@@ -23,6 +23,9 @@ intents.members = True
 
 # Botの初期化
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
+
+# 固定メッセージ更新中のチャンネルを記録（無限ループ回避）
+_updating_attendance_channels: Set[int] = set()
 
 # コマンドモジュール一覧
 COMMAND_MODULES = [
@@ -90,6 +93,10 @@ async def on_message(message: discord.Message):
     if not message.guild:
         return
     
+    # 現在固定メッセージ更新中のチャンネルは無視（無限ループ回避）
+    if message.channel.id in _updating_attendance_channels:
+        return
+    
     # 勤怠管理チャンネルかどうかを確認して固定メッセージを更新
     await handle_attendance_channel_message(message)
     
@@ -107,10 +114,6 @@ async def handle_attendance_channel_message(message: discord.Message):
         if not channel_mapping:
             return
         
-        # 送信されたメッセージが現在の固定メッセージと同じかチェック（無限ループ回避）
-        if message.id == channel_mapping["pinned_message_id"]:
-            return
-        
         # サーバー設定から言語を取得
         guild_settings = await GuildRepository.get_guild_settings(message.guild.id)
         locale = guild_settings["locale"] if guild_settings else "ja"
@@ -120,7 +123,8 @@ async def handle_attendance_channel_message(message: discord.Message):
             channel=message.channel,
             old_message_id=channel_mapping["pinned_message_id"],
             guild_user_id=channel_mapping["guild_user_id"],
-            locale=locale
+            locale=locale,
+            updating_channels=_updating_attendance_channels
         )
         
     except Exception as e:

@@ -150,6 +150,17 @@ class ChannelRepository:
                 new_message_id, guild_user_id
             )
             return 'UPDATE' in result
+        
+    @staticmethod
+    async def update_pinned_message_id(guild_user_id: int, new_message_id: int) -> bool:
+        """固定メッセージIDを更新"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                'UPDATE channel_mappings SET pinned_message_id = $1 WHERE guild_user_id = $2',
+                new_message_id, guild_user_id
+            )
+            return 'UPDATE' in result
 
 class ProjectRepository:
     """プロジェクト管理に関するデータベース操作"""

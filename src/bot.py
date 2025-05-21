@@ -82,8 +82,8 @@ async def on_ready():
 @bot.event
 async def on_message(message: discord.Message):
     """メッセージが送信された時の処理"""
-    # Bot自身のメッセージは無視
-    if message.author == bot.user:
+    # Bot以外のメッセージは無視
+    if message.author != bot.user:
         return
     
     # DMは無視
@@ -97,7 +97,7 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 async def handle_attendance_channel_message(message: discord.Message):
-    """勤怠管理チャンネルでのメッセージ処理"""
+    """勤怠管理チャンネルでのBot自身のメッセージ処理"""
     from src.database.repository import ChannelRepository, GuildRepository
     from src.views.attendance_view import refresh_attendance_message
     
@@ -105,6 +105,10 @@ async def handle_attendance_channel_message(message: discord.Message):
         # チャンネルが勤怠管理チャンネルかどうかを確認
         channel_mapping = await ChannelRepository.get_by_channel_id(message.channel.id)
         if not channel_mapping:
+            return
+        
+        # 送信されたメッセージが現在の固定メッセージと同じかチェック（無限ループ回避）
+        if message.id == channel_mapping["pinned_message_id"]:
             return
         
         # サーバー設定から言語を取得

@@ -80,6 +80,49 @@ async def on_ready():
         logger.critical(f"Failed to initialize bot: {str(e)}")
 
 @bot.event
+async def on_message(message: discord.Message):
+    """メッセージが送信された時の処理"""
+    # Bot自身のメッセージは無視
+    if message.author == bot.user:
+        return
+    
+    # DMは無視
+    if not message.guild:
+        return
+    
+    # 勤怠管理チャンネルかどうかを確認して固定メッセージを更新
+    await handle_attendance_channel_message(message)
+    
+    # コマンド処理を継続
+    await bot.process_commands(message)
+
+async def handle_attendance_channel_message(message: discord.Message):
+    """勤怠管理チャンネルでのメッセージ処理"""
+    from src.database.repository import ChannelRepository, GuildRepository
+    from src.views.attendance_view import refresh_attendance_message
+    
+    try:
+        # チャンネルが勤怠管理チャンネルかどうかを確認
+        channel_mapping = await ChannelRepository.get_by_channel_id(message.channel.id)
+        if not channel_mapping:
+            return
+        
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(message.guild.id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
+        # 固定メッセージを最新位置に移動
+        await refresh_attendance_message(
+            channel=message.channel,
+            old_message_id=channel_mapping["pinned_message_id"],
+            guild_user_id=channel_mapping["guild_user_id"],
+            locale=locale
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling attendance channel message: {str(e)}")
+
+@bot.event
 async def on_interaction(interaction: discord.Interaction):
     """インタラクション（ボタンクリックなど）の処理"""
     if interaction.type == discord.InteractionType.component:

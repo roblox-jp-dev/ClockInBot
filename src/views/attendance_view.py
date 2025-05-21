@@ -157,7 +157,7 @@ async def handle_project_selection(interaction: discord.Interaction):
     # 勤務開始を記録
     session = await AttendanceRepository.start_session(guild_user_id, project_id)
     
-    # 固定メッセージを更新（作成したセッション情報を直接渡す）
+    # 固定メッセージを現在位置で更新（作成したセッション情報を直接渡す）
     await update_attendance_message_with_session(
         interaction.channel,
         channel_mapping["pinned_message_id"],
@@ -279,7 +279,7 @@ async def handle_end_work(interaction: discord.Interaction):
     minutes, seconds = divmod(remainder, 60)
     duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
     
-    # 固定メッセージを未勤務状態に更新
+    # 固定メッセージを現在位置で未勤務状態に更新
     await update_attendance_message(
         interaction.channel,
         channel_mapping["pinned_message_id"],
@@ -406,6 +406,43 @@ async def create_completion_embed(
         )
     
     return embed
+
+async def refresh_attendance_message(
+    channel: discord.TextChannel,
+    old_message_id: int,
+    guild_user_id: int,
+    locale: str = "ja"
+):
+    """固定メッセージを削除して最新位置に再作成"""
+    
+    try:
+        # 古いメッセージを削除
+        try:
+            old_message = await channel.fetch_message(old_message_id)
+            await old_message.delete()
+        except discord.NotFound:
+            # メッセージが既に削除されている場合は無視
+            pass
+        except Exception as e:
+            # その他のエラーもログに記録して続行
+            print(f"Error deleting old attendance message: {str(e)}")
+        
+        # 新しいメッセージを最新位置に作成
+        new_message = await create_or_update_attendance_message(
+            channel=channel,
+            guild_user_id=guild_user_id,
+            pinned_message_id=None,
+            locale=locale
+        )
+        
+        # データベースのメッセージIDを更新
+        await ChannelRepository.update_pinned_message_id(
+            guild_user_id=guild_user_id,
+            new_message_id=new_message.id
+        )
+        
+    except Exception as e:
+        print(f"Error refreshing attendance message: {str(e)}")
 
 async def update_attendance_message(
     channel: discord.TextChannel,

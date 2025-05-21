@@ -166,24 +166,48 @@ async def handle_project_selection(interaction: discord.Interaction):
         locale
     )
     
-    # プロジェクト選択メッセージを削除（選択画面を消す）
+    # プロジェクト選択画面を削除
     try:
-        # 元のメッセージを削除するために、選択完了メッセージで置き換え
-        user = interaction.user
         await interaction.edit_original_response(
-            content=I18n.t("attendance.start", locale, username=user.display_name, project=project["name"]),
-            view=None  # Viewを削除
+            content="プロジェクトを選択しました。",
+            view=None
         )
-        
-        # 5秒後に完了メッセージも削除
-        await interaction.delete_original_response(delay=5)
+        await interaction.delete_original_response(delay=2)
     except:
-        # エラーの場合は通常の確認メッセージ
-        await interaction.followup.send(
-            I18n.t("attendance.start", locale, username=interaction.user.display_name, project=project["name"]),
-            ephemeral=True,
-            delete_after=5
-        )
+        pass
+    
+    # 勤務開始メッセージ（メッセージA）を新しいメッセージとして送信
+    user = interaction.user
+    start_embed = discord.Embed(
+        title="✅ 勤務開始",
+        description=I18n.t("attendance.start", locale, username=user.display_name, project=project["name"]),
+        color=discord.Color.green(),
+        timestamp=datetime.now(timezone.utc)
+    )
+    
+    # ユーザー情報を追加
+    start_embed.set_author(
+        name=user.display_name,
+        icon_url=user.avatar.url if user.avatar else user.default_avatar.url
+    )
+    
+    # プロジェクト情報を追加
+    start_embed.add_field(
+        name="📋 プロジェクト",
+        value=project["name"],
+        inline=True
+    )
+    
+    # 開始時間を追加
+    start_timestamp = int(session["start_time"].timestamp())
+    start_embed.add_field(
+        name="🕐 開始時間",
+        value=f"<t:{start_timestamp}:t>",
+        inline=True
+    )
+    
+    # チャンネルに新しいメッセージとして送信
+    await interaction.channel.send(embed=start_embed)
 
 async def handle_end_work(interaction: discord.Interaction):
     """勤務終了ボタンの処理"""

@@ -423,16 +423,16 @@ class ProjectSettingCog(commands.Cog):
         # 確認間隔入力フィールド
         check_interval_input = discord.ui.TextInput(
             label="確認間隔（分）",
-            placeholder="30",
-            default="30",
+            placeholder="60",
+            default="60",
             required=True
         )
         
         # デフォルトタイムアウト入力フィールド
         default_timeout_input = discord.ui.TextInput(
             label="デフォルトタイムアウト（分）",
-            placeholder="60",
-            default="60",
+            placeholder="15",
+            default="15",
             required=True
         )
         

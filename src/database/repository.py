@@ -150,17 +150,6 @@ class ChannelRepository:
                 new_message_id, guild_user_id
             )
             return 'UPDATE' in result
-        
-    @staticmethod
-    async def update_pinned_message_id(guild_user_id: int, new_message_id: int) -> bool:
-        """固定メッセージIDを更新"""
-        pool = Database.get_pool()
-        async with pool.acquire() as conn:
-            result = await conn.execute(
-                'UPDATE channel_mappings SET pinned_message_id = $1 WHERE guild_user_id = $2',
-                new_message_id, guild_user_id
-            )
-            return 'UPDATE' in result
 
 class ProjectRepository:
     """プロジェクト管理に関するデータベース操作"""
@@ -194,6 +183,33 @@ class ProjectRepository:
             return [dict(row) for row in rows]
     
     @staticmethod
+    async def get_user_projects(guild_id: int, guild_user_id: int, include_archived: bool = False) -> List[Dict[str, Any]]:
+        """ユーザーが参加しているプロジェクトを取得"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            if include_archived:
+                rows = await conn.fetch(
+                    '''
+                    SELECT p.* FROM projects p
+                    JOIN project_members pm ON p.id = pm.project_id
+                    WHERE p.guild_id = $1 AND pm.guild_user_id = $2
+                    ORDER BY p.created_at DESC
+                    ''',
+                    guild_id, guild_user_id
+                )
+            else:
+                rows = await conn.fetch(
+                    '''
+                    SELECT p.* FROM projects p
+                    JOIN project_members pm ON p.id = pm.project_id
+                    WHERE p.guild_id = $1 AND pm.guild_user_id = $2 AND p.is_archived = false
+                    ORDER BY p.created_at DESC
+                    ''',
+                    guild_id, guild_user_id
+                )
+            return [dict(row) for row in rows]
+    
+    @staticmethod
     async def create_project(
         guild_id: int, 
         name: str,
@@ -207,19 +223,34 @@ class ProjectRepository:
         """プロジェクトを作成"""
         pool = Database.get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                '''
-                INSERT INTO projects (
+            async with conn.transaction():
+                # プロジェクトを作成
+                row = await conn.fetchrow(
+                    '''
+                    INSERT INTO projects (
+                        guild_id, name, description, created_by_user_id,
+                        default_timeout, check_interval, require_confirmation, require_modal
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    RETURNING *
+                    ''',
                     guild_id, name, description, created_by_user_id,
                     default_timeout, check_interval, require_confirmation, require_modal
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                RETURNING *
-                ''',
-                guild_id, name, description, created_by_user_id,
-                default_timeout, check_interval, require_confirmation, require_modal
-            )
-            return dict(row)
+                
+                project = dict(row)
+                
+                # 作成者をプロジェクトメンバーに追加
+                if created_by_user_id:
+                    await conn.execute(
+                        '''
+                        INSERT INTO project_members (project_id, guild_user_id)
+                        VALUES ($1, $2)
+                        ''',
+                        project['id'], created_by_user_id
+                    )
+                
+                return project
     
     @staticmethod
     async def update_project(
@@ -288,6 +319,67 @@ class ProjectRepository:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(update_query, *params)
             return dict(row) if row else None
+
+class ProjectMemberRepository:
+    """プロジェクトメンバー管理に関するデータベース操作"""
+    
+    @staticmethod
+    async def get_project_members(project_id: int) -> List[Dict[str, Any]]:
+        """プロジェクトのメンバー一覧を取得"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                '''
+                SELECT pm.*, gu.user_id, gu.user_name
+                FROM project_members pm
+                JOIN guild_users gu ON pm.guild_user_id = gu.id
+                WHERE pm.project_id = $1
+                ORDER BY pm.added_at
+                ''',
+                project_id
+            )
+            return [dict(row) for row in rows]
+    
+    @staticmethod
+    async def add_project_member(project_id: int, guild_user_id: int) -> Optional[Dict[str, Any]]:
+        """プロジェクトにメンバーを追加"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    '''
+                    INSERT INTO project_members (project_id, guild_user_id)
+                    VALUES ($1, $2)
+                    RETURNING *
+                    ''',
+                    project_id, guild_user_id
+                )
+                return dict(row) if row else None
+            except asyncpg.UniqueViolationError:
+                # 既に追加済み
+                return None
+    
+    @staticmethod
+    async def remove_project_member(project_id: int, guild_user_id: int) -> bool:
+        """プロジェクトからメンバーを削除"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                'DELETE FROM project_members WHERE project_id = $1 AND guild_user_id = $2',
+                project_id, guild_user_id
+            )
+            return 'DELETE' in result
+    
+    @staticmethod
+    async def is_project_member(project_id: int, guild_user_id: int) -> bool:
+        """ユーザーがプロジェクトメンバーかどうかを確認"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT 1 FROM project_members WHERE project_id = $1 AND guild_user_id = $2',
+                project_id, guild_user_id
+            )
+            return row is not None
 
 class AttendanceRepository:
     """勤怠管理に関するデータベース操作"""

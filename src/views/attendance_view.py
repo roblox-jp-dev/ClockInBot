@@ -98,11 +98,12 @@ async def handle_start_work(interaction: discord.Interaction):
         await interaction.followup.send(I18n.t("attendance.alreadyStarted", locale), ephemeral=True)
         return
     
-    # プロジェクト一覧を取得
-    projects = await ProjectRepository.get_all_projects(interaction.guild_id)
+    # ユーザーが参加しているプロジェクト一覧を取得
+    from ..database.repository import ProjectMemberRepository
+    user_projects = await ProjectRepository.get_user_projects(interaction.guild_id, guild_user_id)
     
-    if not projects:
-        await interaction.followup.send(I18n.t("project.notFound", locale), ephemeral=True)
+    if not user_projects:
+        await interaction.followup.send("参加可能なプロジェクトがありません。管理者にプロジェクトへの追加を依頼してください。", ephemeral=True)
         return
     
     # プロジェクト選択のセレクトメニューを作成
@@ -112,7 +113,7 @@ async def handle_start_work(interaction: discord.Interaction):
             value=str(project["id"]),
             description=project["description"][:100] if project["description"] else None
         )
-        for project in projects[:25]  # 最大25個
+        for project in user_projects[:25]  # 最大25個
     ]
     
     select = ui.Select(
@@ -150,6 +151,12 @@ async def handle_project_selection(interaction: discord.Interaction):
     from ..database.repository import GuildRepository
     guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
     locale = guild_settings["locale"] if guild_settings else "ja"
+    
+    # プロジェクトメンバーであることを確認
+    from ..database.repository import ProjectMemberRepository
+    if not await ProjectMemberRepository.is_project_member(project_id, guild_user_id):
+        await interaction.followup.send("このプロジェクトに参加していないため、勤務を開始できません。", ephemeral=True)
+        return
     
     # プロジェクト情報を取得
     project = await ProjectRepository.get_project(project_id)

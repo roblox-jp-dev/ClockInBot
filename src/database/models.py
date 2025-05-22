@@ -62,6 +62,17 @@ class Database:
                 )
             ''')
             
+            # project_members テーブル作成（新規追加）
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS project_members (
+                    id                   BIGSERIAL    PRIMARY KEY,
+                    project_id           BIGINT       NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    guild_user_id        BIGINT       NOT NULL REFERENCES guild_users(id) ON DELETE CASCADE,
+                    added_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                    UNIQUE (project_id, guild_user_id)
+                )
+            ''')
+            
             # channel_mappings テーブル作成
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS channel_mappings (

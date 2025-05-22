@@ -189,14 +189,21 @@ class ProjectSettingCog(commands.Cog):
         # 詳細パネルのViewを作成
         view = ProjectSettingView(interaction.guild_id)
         
-        # 概要編集ボタン
+        # 1段目：概要編集ボタン、タイミング設定ボタン
         edit_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
             label="概要編集",
             custom_id="edit_project_info"
         )
         
-        # 定期確認切り替えボタン
+        timing_button = discord.ui.Button(
+            style=discord.ButtonStyle.primary,
+            label="タイミング設定",
+            custom_id="edit_timing",
+            disabled=not project["require_confirmation"]
+        )
+        
+        # 2段目：定期確認切り替えボタン、要約入力切り替えボタン
         confirmation_style = discord.ButtonStyle.success if project["require_confirmation"] else discord.ButtonStyle.secondary
         confirmation_label = "定期確認: ON" if project["require_confirmation"] else "定期確認: OFF"
         confirmation_button = discord.ui.Button(
@@ -205,41 +212,16 @@ class ProjectSettingCog(commands.Cog):
             custom_id="toggle_confirmation"
         )
         
-        # 要約入力切り替えボタン（定期確認がONの場合のみ表示）
-        if project["require_confirmation"]:
-            modal_style = discord.ButtonStyle.success if project["require_modal"] else discord.ButtonStyle.secondary
-            modal_label = "要約入力: ON" if project["require_modal"] else "要約入力: OFF"
-            modal_button = discord.ui.Button(
-                style=modal_style,
-                label=modal_label,
-                custom_id="toggle_modal"
-            )
-            view.add_item(modal_button)
-        
-        # タイミング設定ボタン（定期確認がONの場合のみ表示）
-        if project["require_confirmation"]:
-            timing_button = discord.ui.Button(
-                style=discord.ButtonStyle.primary,
-                label="タイミング設定",
-                custom_id="edit_timing"
-            )
-            view.add_item(timing_button)
-        
-        # アーカイブボタン
-        archive_button = discord.ui.Button(
-            style=discord.ButtonStyle.secondary,
-            label="プロジェクトアーカイブ",
-            custom_id="archive_project"
+        modal_style = discord.ButtonStyle.success if project["require_modal"] else discord.ButtonStyle.secondary
+        modal_label = "要約入力: ON" if project["require_modal"] else "要約入力: OFF"
+        modal_button = discord.ui.Button(
+            style=modal_style,
+            label=modal_label,
+            custom_id="toggle_modal",
+            disabled=not project["require_confirmation"]
         )
         
-        # 戻るボタン
-        back_button = discord.ui.Button(
-            style=discord.ButtonStyle.secondary,
-            label="戻る",
-            custom_id="back_to_main"
-        )
-        
-        # メンバー管理用のUserSelect
+        # 3段目：メンバー管理用のUserSelect
         user_select = discord.ui.UserSelect(
             placeholder="メンバーを追加/削除",
             min_values=1,
@@ -248,20 +230,27 @@ class ProjectSettingCog(commands.Cog):
         )
         user_select.callback = self._user_select_callback
         
+        # 4段目：アーカイブボタン
+        archive_button = discord.ui.Button(
+            style=discord.ButtonStyle.danger,
+            label="プロジェクトアーカイブ",
+            custom_id="archive_project"
+        )
+        
         # ボタンコールバック設定
         edit_button.callback = lambda i: self._edit_project_info_callback(i, project)
+        timing_button.callback = lambda i: self._edit_timing_callback(i, project)
         confirmation_button.callback = lambda i: self._toggle_confirmation_callback(i, project)
-        if project["require_confirmation"]:
-            modal_button.callback = lambda i: self._toggle_modal_callback(i, project)
-            timing_button.callback = lambda i: self._edit_timing_callback(i, project)
+        modal_button.callback = lambda i: self._toggle_modal_callback(i, project)
         archive_button.callback = lambda i: self._archive_project_callback(i, project)
-        back_button.callback = lambda i: self._back_to_main_callback(i)
         
+        # Viewにボタンを順序通りに追加
         view.add_item(edit_button)
+        view.add_item(timing_button)
         view.add_item(confirmation_button)
-        view.add_item(archive_button)
-        view.add_item(back_button)
+        view.add_item(modal_button)
         view.add_item(user_select)
+        view.add_item(archive_button)
         
         # メッセージを更新
         await interaction.response.edit_message(embed=embed, view=view)
@@ -620,14 +609,21 @@ class ProjectSettingCog(commands.Cog):
         # プロジェクト作成用のViewを作成
         view = ProjectCreationView(guild_id, temp_project_data)
         
-        # 概要編集ボタン
+        # 1段目：概要編集ボタン、タイミング設定ボタン
         edit_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
             label="概要編集",
             custom_id="edit_creation_info"
         )
         
-        # 定期確認切り替えボタン
+        timing_button = discord.ui.Button(
+            style=discord.ButtonStyle.primary,
+            label="タイミング設定",
+            custom_id="edit_creation_timing",
+            disabled=not temp_project_data["require_confirmation"]
+        )
+        
+        # 2段目：定期確認切り替えボタン、要約入力切り替えボタン
         confirmation_style = discord.ButtonStyle.success if temp_project_data["require_confirmation"] else discord.ButtonStyle.secondary
         confirmation_label = "定期確認: ON" if temp_project_data["require_confirmation"] else "定期確認: OFF"
         confirmation_button = discord.ui.Button(
@@ -636,53 +632,35 @@ class ProjectSettingCog(commands.Cog):
             custom_id="toggle_creation_confirmation"
         )
         
-        # 要約入力切り替えボタン（定期確認がONの場合のみ表示）
-        if temp_project_data["require_confirmation"]:
-            modal_style = discord.ButtonStyle.success if temp_project_data["require_modal"] else discord.ButtonStyle.secondary
-            modal_label = "要約入力: ON" if temp_project_data["require_modal"] else "要約入力: OFF"
-            modal_button = discord.ui.Button(
-                style=modal_style,
-                label=modal_label,
-                custom_id="toggle_creation_modal"
-            )
-            view.add_item(modal_button)
+        modal_style = discord.ButtonStyle.success if temp_project_data["require_modal"] else discord.ButtonStyle.secondary
+        modal_label = "要約入力: ON" if temp_project_data["require_modal"] else "要約入力: OFF"
+        modal_button = discord.ui.Button(
+            style=modal_style,
+            label=modal_label,
+            custom_id="toggle_creation_modal",
+            disabled=not temp_project_data["require_confirmation"]
+        )
         
-        # タイミング設定ボタン（定期確認がONの場合のみ表示）
-        if temp_project_data["require_confirmation"]:
-            timing_button = discord.ui.Button(
-                style=discord.ButtonStyle.primary,
-                label="タイミング設定",
-                custom_id="edit_creation_timing"
-            )
-            view.add_item(timing_button)
-        
-        # 作成ボタン
+        # 3段目：作成ボタン
         create_button = discord.ui.Button(
             style=discord.ButtonStyle.success,
             label="作成",
             custom_id="create_project"
         )
         
-        # キャンセルボタン
-        cancel_button = discord.ui.Button(
-            style=discord.ButtonStyle.secondary,
-            label="キャンセル",
-            custom_id="cancel_creation"
-        )
-        
         # ボタンコールバック設定
         edit_button.callback = lambda i: self._edit_creation_info_callback(i, temp_project_data)
+        timing_button.callback = lambda i: self._edit_creation_timing_callback(i, guild_id, user_id, temp_project_data)
         confirmation_button.callback = lambda i: self._toggle_creation_confirmation_callback(i, guild_id, user_id, temp_project_data)
-        if temp_project_data["require_confirmation"]:
-            modal_button.callback = lambda i: self._toggle_creation_modal_callback(i, guild_id, user_id, temp_project_data)
-            timing_button.callback = lambda i: self._edit_creation_timing_callback(i, guild_id, user_id, temp_project_data)
+        modal_button.callback = lambda i: self._toggle_creation_modal_callback(i, guild_id, user_id, temp_project_data)
         create_button.callback = lambda i: self._create_project_callback(i, guild_id, user_id, temp_project_data)
-        cancel_button.callback = lambda i: self._back_to_main_callback(i)
         
+        # Viewにボタンを順序通りに追加
         view.add_item(edit_button)
+        view.add_item(timing_button)
         view.add_item(confirmation_button)
+        view.add_item(modal_button)
         view.add_item(create_button)
-        view.add_item(cancel_button)
         
         # メッセージを更新
         await interaction.response.edit_message(embed=embed, view=view)

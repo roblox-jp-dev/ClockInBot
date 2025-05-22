@@ -157,15 +157,6 @@ async def handle_project_selection(interaction: discord.Interaction):
     # 勤務開始を記録
     session = await AttendanceRepository.start_session(guild_user_id, project_id)
     
-    # 固定メッセージを現在位置で更新（作成したセッション情報を直接渡す）
-    await update_attendance_message_with_session(
-        interaction.channel,
-        channel_mapping["pinned_message_id"],
-        guild_user_id,
-        session,  # 作成したセッション情報を直接渡す
-        locale
-    )
-    
     # プロジェクト選択画面を削除
     try:
         await interaction.edit_original_response(

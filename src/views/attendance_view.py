@@ -163,7 +163,8 @@ async def handle_project_selection(interaction: discord.Interaction):
             content="プロジェクトを選択しました。",
             view=None
         )
-        await interaction.delete_original_response(delay=2)
+        await asyncio.sleep(2)
+        await interaction.delete_original_response()
     except:
         pass
     

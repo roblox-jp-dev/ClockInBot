@@ -192,17 +192,17 @@ class ProjectSettingCog(commands.Cog):
                 try:
                     check_interval = int(check_interval_input.value) * 60
                     if check_interval <= 0:
-                        check_interval = 1800  # デフォルト30分
+                        check_interval = 3600  # デフォルト30分
                 except ValueError:
-                    check_interval = 1800  # デフォルト30分
+                    check_interval = 3600  # デフォルト30分
                 
                 # デフォルトタイムアウトを秒に変換
                 try:
                     default_timeout = int(default_timeout_input.value) * 60
                     if default_timeout <= 0:
-                        default_timeout = 3600  # デフォルト60分
+                        default_timeout = 900  # デフォルト60分
                 except ValueError:
-                    default_timeout = 3600  # デフォルト60分
+                    default_timeout = 900  # デフォルト60分
                 
                 # デフォルトタイムアウトが確認間隔より長い場合は調整
                 if check_interval < default_timeout:
@@ -343,17 +343,17 @@ class ProjectSettingCog(commands.Cog):
                     try:
                         check_interval = int(check_interval_input.value) * 60
                         if check_interval <= 0:
-                            check_interval = 1800  # デフォルト30分
+                            check_interval = 3600  # デフォルト60分
                     except ValueError:
-                        check_interval = 1800  # デフォルト30分
+                        check_interval = 3600  # デフォルト60分
                     
                     # デフォルトタイムアウトを秒に変換
                     try:
                         default_timeout = int(default_timeout_input.value) * 60
                         if default_timeout <= 0:
-                            default_timeout = 3600  # デフォルト60分
+                            default_timeout = 900  # デフォルト15分
                     except ValueError:
-                        default_timeout = 3600  # デフォルト60分
+                        default_timeout = 900  # デフォルト15分
                     
                     # デフォルトタイムアウトが確認間隔より長い場合は調整
                     if check_interval < default_timeout:

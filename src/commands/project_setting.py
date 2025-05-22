@@ -24,6 +24,22 @@ class ProjectSettingView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error during timeout cleanup: {str(e)}")
 
+class ProjectCreationView(discord.ui.View):
+    """プロジェクト作成用のView"""
+    
+    def __init__(self, guild_id: int, temp_project_data: Dict[str, Any]):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+        self.temp_project_data = temp_project_data
+    
+    async def on_timeout(self):
+        """タイムアウト時にメッセージを削除"""
+        try:
+            if hasattr(self, 'message'):
+                await self.message.delete()
+        except Exception as e:
+            logger.error(f"Error during timeout cleanup: {str(e)}")
+
 class ProjectSettingCog(commands.Cog):
     """プロジェクト設定を管理するコマンド"""
     
@@ -180,6 +196,35 @@ class ProjectSettingCog(commands.Cog):
             custom_id="edit_project_info"
         )
         
+        # 定期確認切り替えボタン
+        confirmation_style = discord.ButtonStyle.success if project["require_confirmation"] else discord.ButtonStyle.secondary
+        confirmation_label = "定期確認: ON" if project["require_confirmation"] else "定期確認: OFF"
+        confirmation_button = discord.ui.Button(
+            style=confirmation_style,
+            label=confirmation_label,
+            custom_id="toggle_confirmation"
+        )
+        
+        # 要約入力切り替えボタン（定期確認がONの場合のみ表示）
+        if project["require_confirmation"]:
+            modal_style = discord.ButtonStyle.success if project["require_modal"] else discord.ButtonStyle.secondary
+            modal_label = "要約入力: ON" if project["require_modal"] else "要約入力: OFF"
+            modal_button = discord.ui.Button(
+                style=modal_style,
+                label=modal_label,
+                custom_id="toggle_modal"
+            )
+            view.add_item(modal_button)
+        
+        # タイミング設定ボタン（定期確認がONの場合のみ表示）
+        if project["require_confirmation"]:
+            timing_button = discord.ui.Button(
+                style=discord.ButtonStyle.primary,
+                label="タイミング設定",
+                custom_id="edit_timing"
+            )
+            view.add_item(timing_button)
+        
         # アーカイブボタン
         archive_button = discord.ui.Button(
             style=discord.ButtonStyle.secondary,
@@ -194,20 +239,29 @@ class ProjectSettingCog(commands.Cog):
             custom_id="back_to_main"
         )
         
-        # メンバー管理セレクトメニュー
-        guild_users = await UserRepository.get_all_guild_users(interaction.guild_id)
-        if guild_users:
-            member_select = self._create_member_select_menu(guild_users, project_id)
-            view.add_item(member_select)
+        # メンバー管理用のUserSelect
+        user_select = discord.ui.UserSelect(
+            placeholder="メンバーを追加/削除",
+            min_values=1,
+            max_values=25,
+            custom_id=f"user_select_{project_id}"
+        )
+        user_select.callback = self._user_select_callback
         
         # ボタンコールバック設定
         edit_button.callback = lambda i: self._edit_project_info_callback(i, project)
+        confirmation_button.callback = lambda i: self._toggle_confirmation_callback(i, project)
+        if project["require_confirmation"]:
+            modal_button.callback = lambda i: self._toggle_modal_callback(i, project)
+            timing_button.callback = lambda i: self._edit_timing_callback(i, project)
         archive_button.callback = lambda i: self._archive_project_callback(i, project)
         back_button.callback = lambda i: self._back_to_main_callback(i)
         
         view.add_item(edit_button)
+        view.add_item(confirmation_button)
         view.add_item(archive_button)
         view.add_item(back_button)
+        view.add_item(user_select)
         
         # メッセージを更新
         await interaction.response.edit_message(embed=embed, view=view)
@@ -228,19 +282,18 @@ class ProjectSettingCog(commands.Cog):
         )
         
         # 設定情報
-        check_interval_minutes = project["check_interval"] // 60
-        timeout_minutes = project["default_timeout"] // 60
-        
-        settings_text = f"・確認間隔: {check_interval_minutes}分\n・タイムアウト: {timeout_minutes}分"
         if project["require_confirmation"]:
-            settings_text += "\n・定期確認: 有効"
+            check_interval_minutes = project["check_interval"] // 60
+            timeout_minutes = project["default_timeout"] // 60
+            
+            settings_text = f"・定期確認: 有効\n・確認間隔: {check_interval_minutes}分\n・タイムアウト: {timeout_minutes}分"
+            
+            if project["require_modal"]:
+                settings_text += "\n・要約入力: 必須"
+            else:
+                settings_text += "\n・要約入力: 任意"
         else:
-            settings_text += "\n・定期確認: 無効"
-        
-        if project["require_modal"]:
-            settings_text += "\n・要約入力: 必須"
-        else:
-            settings_text += "\n・要約入力: 任意"
+            settings_text = "・定期確認: 無効"
         
         embed.add_field(
             name="設定",
@@ -265,31 +318,18 @@ class ProjectSettingCog(commands.Cog):
         
         return embed
     
-    def _create_member_select_menu(self, guild_users: List[Dict[str, Any]], project_id: int):
-        """メンバー管理セレクトメニューを作成"""
-        options = [
-            discord.SelectOption(
-                label=user["user_name"],
-                value=str(user["id"]),
-                description=f"User ID: {user['user_id']}"
-            )
-            for user in guild_users[:25]  # 最大25個
-        ]
-        
-        select = discord.ui.Select(
-            custom_id=f"member_select_{project_id}",
-            placeholder="メンバーを追加/削除",
-            options=options
-        )
-        
-        select.callback = self._member_select_callback
-        return select
-    
-    async def _member_select_callback(self, interaction: discord.Interaction):
-        """メンバー選択のコールバック"""
+    async def _user_select_callback(self, interaction: discord.Interaction):
+        """ユーザー選択のコールバック"""
         custom_id = interaction.data['custom_id']
         project_id = int(custom_id.split('_')[-1])
-        selected_guild_user_ids = [int(x) for x in interaction.data['values']]
+        selected_users = interaction.data['values']
+        
+        # 選択されたユーザーのguild_user_idを取得
+        selected_guild_user_ids = []
+        for user_id in selected_users:
+            guild_user = await UserRepository.get_guild_user(interaction.guild_id, int(user_id))
+            if guild_user:
+                selected_guild_user_ids.append(guild_user["id"])
         
         # 選択されたユーザーを分類
         to_add = []
@@ -400,9 +440,129 @@ class ProjectSettingCog(commands.Cog):
                 view=None
             )
     
+    async def _toggle_confirmation_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
+        """定期確認の切り替えコールバック"""
+        try:
+            new_value = not project["require_confirmation"]
+            
+            # 定期確認をオフにする場合は要約入力も強制的にオフ
+            require_modal = project["require_modal"] if new_value else False
+            
+            await ProjectRepository.update_project(
+                project_id=project["id"],
+                require_confirmation=new_value,
+                require_modal=require_modal
+            )
+            
+            # 詳細画面を再表示
+            await self._show_project_detail_panel(interaction, project["id"])
+        
+        except Exception as e:
+            logger.error(f"Error toggling confirmation: {str(e)}")
+            await interaction.response.edit_message(
+                embed=discord.Embed(
+                    title="❌ エラー",
+                    description=I18n.t("common.error", message=str(e)),
+                    color=discord.Color.red()
+                ),
+                view=None
+            )
+    
+    async def _toggle_modal_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
+        """要約入力の切り替えコールバック"""
+        try:
+            new_value = not project["require_modal"]
+            
+            await ProjectRepository.update_project(
+                project_id=project["id"],
+                require_modal=new_value
+            )
+            
+            # 詳細画面を再表示
+            await self._show_project_detail_panel(interaction, project["id"])
+        
+        except Exception as e:
+            logger.error(f"Error toggling modal: {str(e)}")
+            await interaction.response.edit_message(
+                embed=discord.Embed(
+                    title="❌ エラー",
+                    description=I18n.t("common.error", message=str(e)),
+                    color=discord.Color.red()
+                ),
+                view=None
+            )
+    
+    async def _edit_timing_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
+        """タイミング設定編集のコールバック"""
+        # タイミング設定編集用のモーダルを表示
+        modal = discord.ui.Modal(title=f"タイミング設定: {project['name']}")
+        
+        # 確認間隔入力フィールド
+        check_interval_input = discord.ui.TextInput(
+            label="確認間隔（分）",
+            default=str(project["check_interval"] // 60),
+            required=True
+        )
+        
+        # デフォルトタイムアウト入力フィールド
+        default_timeout_input = discord.ui.TextInput(
+            label="デフォルトタイムアウト（分）",
+            default=str(project["default_timeout"] // 60),
+            required=True
+        )
+        
+        # モーダルにフィールドを追加
+        modal.add_item(check_interval_input)
+        modal.add_item(default_timeout_input)
+        
+        # モーダル送信時の処理
+        async def on_timing_submit(interaction: discord.Interaction):
+            try:
+                # 確認間隔を秒に変換
+                try:
+                    check_interval = int(check_interval_input.value) * 60
+                    if check_interval <= 0:
+                        check_interval = 1800  # デフォルト30分
+                except ValueError:
+                    check_interval = 1800  # デフォルト30分
+                
+                # デフォルトタイムアウトを秒に変換
+                try:
+                    default_timeout = int(default_timeout_input.value) * 60
+                    if default_timeout <= 0:
+                        default_timeout = 3600  # デフォルト60分
+                except ValueError:
+                    default_timeout = 3600  # デフォルト60分
+                
+                # デフォルトタイムアウトが確認間隔より短い場合は調整
+                if default_timeout < check_interval:
+                    default_timeout = check_interval
+                
+                # プロジェクトを更新
+                await ProjectRepository.update_project(
+                    project_id=project["id"],
+                    default_timeout=default_timeout,
+                    check_interval=check_interval
+                )
+                
+                # 詳細画面に戻る
+                await self._show_project_detail_panel(interaction, project["id"])
+            
+            except Exception as e:
+                logger.error(f"Error updating timing: {str(e)}")
+                error_embed = discord.Embed(
+                    title="❌ エラー",
+                    description=I18n.t("common.error", message=str(e)),
+                    color=discord.Color.red()
+                )
+                await interaction.response.edit_message(embed=error_embed, view=None)
+        
+        modal.on_submit = on_timing_submit
+        await interaction.response.send_modal(modal)
+    
     async def _add_project_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int):
         """新規プロジェクト追加のコールバック"""
-        # 新規プロジェクト追加のモーダルを表示
+        # 新規プロジェクト追加のモーダルを表示（名前と説明のみ）
         modal = discord.ui.Modal(title="新規プロジェクト追加")
         
         # プロジェクト名入力フィールド
@@ -420,35 +580,243 @@ class ProjectSettingCog(commands.Cog):
             required=False
         )
         
+        # モーダルにフィールドを追加
+        modal.add_item(name_input)
+        modal.add_item(description_input)
+        
+        # モーダル送信時の処理
+        async def on_basic_info_submit(interaction: discord.Interaction):
+            try:
+                # 一時的なプロジェクトデータを作成
+                temp_project_data = {
+                    "name": name_input.value,
+                    "description": description_input.value,
+                    "require_confirmation": True,  # デフォルト値
+                    "require_modal": True,  # デフォルト値
+                    "check_interval": 1800,  # デフォルト30分
+                    "default_timeout": 3600  # デフォルト60分
+                }
+                
+                # プロジェクト作成プレビュー画面を表示
+                await self._show_project_creation_preview(interaction, guild_id, user_id, temp_project_data)
+            
+            except Exception as e:
+                logger.error(f"Error in basic info submit: {str(e)}")
+                error_embed = discord.Embed(
+                    title="❌ エラー",
+                    description=I18n.t("common.error", message=str(e)),
+                    color=discord.Color.red()
+                )
+                await interaction.response.edit_message(embed=error_embed, view=None)
+        
+        modal.on_submit = on_basic_info_submit
+        await interaction.response.send_modal(modal)
+    
+    async def _show_project_creation_preview(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
+        """プロジェクト作成プレビュー画面を表示"""
+        # プレビューEmbedを作成
+        embed = await self._create_project_creation_preview_embed(temp_project_data)
+        
+        # プロジェクト作成用のViewを作成
+        view = ProjectCreationView(guild_id, temp_project_data)
+        
+        # 概要編集ボタン
+        edit_button = discord.ui.Button(
+            style=discord.ButtonStyle.primary,
+            label="概要編集",
+            custom_id="edit_creation_info"
+        )
+        
+        # 定期確認切り替えボタン
+        confirmation_style = discord.ButtonStyle.success if temp_project_data["require_confirmation"] else discord.ButtonStyle.secondary
+        confirmation_label = "定期確認: ON" if temp_project_data["require_confirmation"] else "定期確認: OFF"
+        confirmation_button = discord.ui.Button(
+            style=confirmation_style,
+            label=confirmation_label,
+            custom_id="toggle_creation_confirmation"
+        )
+        
+        # 要約入力切り替えボタン（定期確認がONの場合のみ表示）
+        if temp_project_data["require_confirmation"]:
+            modal_style = discord.ButtonStyle.success if temp_project_data["require_modal"] else discord.ButtonStyle.secondary
+            modal_label = "要約入力: ON" if temp_project_data["require_modal"] else "要約入力: OFF"
+            modal_button = discord.ui.Button(
+                style=modal_style,
+                label=modal_label,
+                custom_id="toggle_creation_modal"
+            )
+            view.add_item(modal_button)
+        
+        # タイミング設定ボタン（定期確認がONの場合のみ表示）
+        if temp_project_data["require_confirmation"]:
+            timing_button = discord.ui.Button(
+                style=discord.ButtonStyle.primary,
+                label="タイミング設定",
+                custom_id="edit_creation_timing"
+            )
+            view.add_item(timing_button)
+        
+        # 作成ボタン
+        create_button = discord.ui.Button(
+            style=discord.ButtonStyle.success,
+            label="作成",
+            custom_id="create_project"
+        )
+        
+        # キャンセルボタン
+        cancel_button = discord.ui.Button(
+            style=discord.ButtonStyle.secondary,
+            label="キャンセル",
+            custom_id="cancel_creation"
+        )
+        
+        # ボタンコールバック設定
+        edit_button.callback = lambda i: self._edit_creation_info_callback(i, temp_project_data)
+        confirmation_button.callback = lambda i: self._toggle_creation_confirmation_callback(i, guild_id, user_id, temp_project_data)
+        if temp_project_data["require_confirmation"]:
+            modal_button.callback = lambda i: self._toggle_creation_modal_callback(i, guild_id, user_id, temp_project_data)
+            timing_button.callback = lambda i: self._edit_creation_timing_callback(i, guild_id, user_id, temp_project_data)
+        create_button.callback = lambda i: self._create_project_callback(i, guild_id, user_id, temp_project_data)
+        cancel_button.callback = lambda i: self._back_to_main_callback(i)
+        
+        view.add_item(edit_button)
+        view.add_item(confirmation_button)
+        view.add_item(create_button)
+        view.add_item(cancel_button)
+        
+        # メッセージを更新
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.message = interaction.message
+    
+    async def _create_project_creation_preview_embed(self, temp_project_data: Dict[str, Any]) -> discord.Embed:
+        """プロジェクト作成プレビューのEmbedを作成"""
+        embed = discord.Embed(
+            title=f"📋 プロジェクト作成プレビュー: {temp_project_data['name']}",
+            description="設定を確認して「作成」ボタンを押してください",
+            color=discord.Color.orange()
+        )
+        
+        # プロジェクト情報
+        embed.add_field(
+            name="説明",
+            value=temp_project_data["description"] or "なし",
+            inline=False
+        )
+        
+        # 設定情報
+        if temp_project_data["require_confirmation"]:
+            check_interval_minutes = temp_project_data["check_interval"] // 60
+            timeout_minutes = temp_project_data["default_timeout"] // 60
+            
+            settings_text = f"・定期確認: 有効\n・確認間隔: {check_interval_minutes}分\n・タイムアウト: {timeout_minutes}分"
+            
+            if temp_project_data["require_modal"]:
+                settings_text += "\n・要約入力: 必須"
+            else:
+                settings_text += "\n・要約入力: 任意"
+        else:
+            settings_text = "・定期確認: 無効"
+        
+        embed.add_field(
+            name="設定",
+            value=settings_text,
+            inline=False
+        )
+        
+        return embed
+    
+    async def _edit_creation_info_callback(self, interaction: discord.Interaction, temp_project_data: Dict[str, Any]):
+        """作成時の概要編集コールバック"""
+        # 概要編集用のモーダルを表示
+        modal = discord.ui.Modal(title=f"概要編集: {temp_project_data['name']}")
+        
+        # プロジェクト名入力フィールド（既存の値をデフォルトに）
+        name_input = discord.ui.TextInput(
+            label="プロジェクト名",
+            default=temp_project_data["name"],
+            required=True
+        )
+        
+        # 説明入力フィールド
+        description_input = discord.ui.TextInput(
+            label="説明",
+            default=temp_project_data["description"] or "",
+            style=discord.TextStyle.paragraph,
+            required=False
+        )
+        
+        # モーダルにフィールドを追加
+        modal.add_item(name_input)
+        modal.add_item(description_input)
+        
+        # モーダル送信時の処理
+        async def on_edit_creation_submit(interaction: discord.Interaction):
+            try:
+                # 一時データを更新
+                temp_project_data["name"] = name_input.value
+                temp_project_data["description"] = description_input.value
+                
+                # プレビュー画面を再表示
+                await self._show_project_creation_preview(interaction, interaction.guild_id, interaction.user.id, temp_project_data)
+            
+            except Exception as e:
+                logger.error(f"Error updating creation info: {str(e)}")
+                error_embed = discord.Embed(
+                    title="❌ エラー",
+                    description=I18n.t("common.error", message=str(e)),
+                    color=discord.Color.red()
+                )
+                await interaction.response.edit_message(embed=error_embed, view=None)
+        
+        modal.on_submit = on_edit_creation_submit
+        await interaction.response.send_modal(modal)
+    
+    async def _toggle_creation_confirmation_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
+        """作成時の定期確認切り替えコールバック"""
+        # 定期確認を切り替え
+        temp_project_data["require_confirmation"] = not temp_project_data["require_confirmation"]
+        
+        # 定期確認をオフにする場合は要約入力も強制的にオフ
+        if not temp_project_data["require_confirmation"]:
+            temp_project_data["require_modal"] = False
+        
+        # プレビュー画面を再表示
+        await self._show_project_creation_preview(interaction, guild_id, user_id, temp_project_data)
+    
+    async def _toggle_creation_modal_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
+        """作成時の要約入力切り替えコールバック"""
+        # 要約入力を切り替え
+        temp_project_data["require_modal"] = not temp_project_data["require_modal"]
+        
+        # プレビュー画面を再表示
+        await self._show_project_creation_preview(interaction, guild_id, user_id, temp_project_data)
+    
+    async def _edit_creation_timing_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
+        """作成時のタイミング設定編集コールバック"""
+        # タイミング設定編集用のモーダルを表示
+        modal = discord.ui.Modal(title=f"タイミング設定: {temp_project_data['name']}")
+        
         # 確認間隔入力フィールド
         check_interval_input = discord.ui.TextInput(
             label="確認間隔（分）",
-            placeholder="60",
-            default="60",
+            default=str(temp_project_data["check_interval"] // 60),
             required=True
         )
         
         # デフォルトタイムアウト入力フィールド
         default_timeout_input = discord.ui.TextInput(
             label="デフォルトタイムアウト（分）",
-            placeholder="15",
-            default="15",
+            default=str(temp_project_data["default_timeout"] // 60),
             required=True
         )
         
         # モーダルにフィールドを追加
-        modal.add_item(name_input)
-        modal.add_item(description_input)
         modal.add_item(check_interval_input)
         modal.add_item(default_timeout_input)
         
         # モーダル送信時の処理
-        async def on_add_submit(interaction: discord.Interaction):
+        async def on_creation_timing_submit(interaction: discord.Interaction):
             try:
-                # 入力値を取得
-                name = name_input.value
-                description = description_input.value
-                
                 # 確認間隔を秒に変換
                 try:
                     check_interval = int(check_interval_input.value) * 60
@@ -465,43 +833,19 @@ class ProjectSettingCog(commands.Cog):
                 except ValueError:
                     default_timeout = 3600  # デフォルト60分
                 
-                # デフォルトタイムアウトが確認間隔より長い場合は調整
-                if check_interval > default_timeout:
+                # デフォルトタイムアウトが確認間隔より短い場合は調整
+                if default_timeout < check_interval:
                     default_timeout = check_interval
                 
-                # ユーザー情報を取得
-                guild_user = await UserRepository.get_guild_user(guild_id, user_id)
+                # 一時データを更新
+                temp_project_data["check_interval"] = check_interval
+                temp_project_data["default_timeout"] = default_timeout
                 
-                # プロジェクトを作成
-                created_project = await ProjectRepository.create_project(
-                    guild_id=guild_id,
-                    name=name,
-                    description=description,
-                    created_by_user_id=guild_user["id"] if guild_user else None,
-                    default_timeout=default_timeout,
-                    check_interval=check_interval,
-                    require_confirmation=True,
-                    require_modal=True
-                )
-                
-                # 成功メッセージのEmbedを作成
-                success_embed = discord.Embed(
-                    title="✅ プロジェクト作成完了",
-                    description=I18n.t("project.created", name=name),
-                    color=discord.Color.green()
-                )
-                
-                success_embed.add_field(
-                    name="設定内容",
-                    value=f"・確認間隔: {check_interval // 60}分\n・タイムアウト: {default_timeout // 60}分",
-                    inline=False
-                )
-                
-                # 元のメッセージを編集
-                await interaction.response.edit_message(embed=success_embed, view=None)
+                # プレビュー画面を再表示
+                await self._show_project_creation_preview(interaction, guild_id, user_id, temp_project_data)
             
             except Exception as e:
-                logger.error(f"Error creating project: {str(e)}")
+                logger.error(f"Error updating creation timing: {str(e)}")
                 error_embed = discord.Embed(
                     title="❌ エラー",
                     description=I18n.t("common.error", message=str(e)),
@@ -509,8 +853,58 @@ class ProjectSettingCog(commands.Cog):
                 )
                 await interaction.response.edit_message(embed=error_embed, view=None)
         
-        modal.on_submit = on_add_submit
+        modal.on_submit = on_creation_timing_submit
         await interaction.response.send_modal(modal)
+    
+    async def _create_project_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
+        """プロジェクト作成実行コールバック"""
+        try:
+            # ユーザー情報を取得
+            guild_user = await UserRepository.get_guild_user(guild_id, user_id)
+            
+            # プロジェクトを作成
+            created_project = await ProjectRepository.create_project(
+                guild_id=guild_id,
+                name=temp_project_data["name"],
+                description=temp_project_data["description"],
+                created_by_user_id=guild_user["id"] if guild_user else None,
+                default_timeout=temp_project_data["default_timeout"],
+                check_interval=temp_project_data["check_interval"],
+                require_confirmation=temp_project_data["require_confirmation"],
+                require_modal=temp_project_data["require_modal"]
+            )
+            
+            # 成功メッセージのEmbedを作成
+            success_embed = discord.Embed(
+                title="✅ プロジェクト作成完了",
+                description=I18n.t("project.created", name=temp_project_data["name"]),
+                color=discord.Color.green()
+            )
+            
+            if temp_project_data["require_confirmation"]:
+                success_embed.add_field(
+                    name="設定内容",
+                    value=f"・確認間隔: {temp_project_data['check_interval'] // 60}分\n・タイムアウト: {temp_project_data['default_timeout'] // 60}分",
+                    inline=False
+                )
+            else:
+                success_embed.add_field(
+                    name="設定内容",
+                    value="・定期確認: 無効",
+                    inline=False
+                )
+            
+            # 元のメッセージを編集
+            await interaction.response.edit_message(embed=success_embed, view=None)
+        
+        except Exception as e:
+            logger.error(f"Error creating project: {str(e)}")
+            error_embed = discord.Embed(
+                title="❌ エラー",
+                description=I18n.t("common.error", message=str(e)),
+                color=discord.Color.red()
+            )
+            await interaction.response.edit_message(embed=error_embed, view=None)
     
     async def _edit_project_info_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
         """プロジェクト概要編集のコールバック"""
@@ -532,25 +926,9 @@ class ProjectSettingCog(commands.Cog):
             required=False
         )
         
-        # 確認間隔入力フィールド
-        check_interval_input = discord.ui.TextInput(
-            label="確認間隔（分）",
-            default=str(project["check_interval"] // 60),
-            required=True
-        )
-        
-        # デフォルトタイムアウト入力フィールド
-        default_timeout_input = discord.ui.TextInput(
-            label="デフォルトタイムアウト（分）",
-            default=str(project["default_timeout"] // 60),
-            required=True
-        )
-        
         # モーダルにフィールドを追加
         modal.add_item(name_input)
         modal.add_item(description_input)
-        modal.add_item(check_interval_input)
-        modal.add_item(default_timeout_input)
         
         # モーダル送信時の処理
         async def on_edit_submit(interaction: discord.Interaction):
@@ -559,33 +937,11 @@ class ProjectSettingCog(commands.Cog):
                 name = name_input.value
                 description = description_input.value
                 
-                # 確認間隔を秒に変換
-                try:
-                    check_interval = int(check_interval_input.value) * 60
-                    if check_interval <= 0:
-                        check_interval = 1800  # デフォルト30分
-                except ValueError:
-                    check_interval = 1800  # デフォルト30分
-                
-                # デフォルトタイムアウトを秒に変換
-                try:
-                    default_timeout = int(default_timeout_input.value) * 60
-                    if default_timeout <= 0:
-                        default_timeout = 3600  # デフォルト60分
-                except ValueError:
-                    default_timeout = 3600  # デフォルト60分
-                
-                # デフォルトタイムアウトが確認間隔より長い場合は調整
-                if check_interval > default_timeout:
-                    default_timeout = check_interval
-                
                 # プロジェクトを更新
                 updated_project = await ProjectRepository.update_project(
                     project_id=project["id"],
                     name=name,
-                    description=description,
-                    default_timeout=default_timeout,
-                    check_interval=check_interval
+                    description=description
                 )
                 
                 # 詳細画面に戻る

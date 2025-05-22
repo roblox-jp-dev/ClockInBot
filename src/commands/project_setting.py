@@ -82,7 +82,8 @@ class ProjectSettingCog(commands.Cog):
         add_button = discord.ui.Button(
             style=discord.ButtonStyle.success,
             label="新規プロジェクト追加",
-            custom_id="add_project"
+            custom_id="add_project",
+            row=0
         )
         
         # プロジェクト編集セレクトメニュー
@@ -94,6 +95,7 @@ class ProjectSettingCog(commands.Cog):
                 "edit_project_select",
                 "編集するプロジェクトを選択"
             )
+            edit_select.row = 1
             view.add_item(edit_select)
         
         # ボタンにコールバックを設定
@@ -193,14 +195,16 @@ class ProjectSettingCog(commands.Cog):
         edit_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
             label="概要編集",
-            custom_id="edit_project_info"
+            custom_id="edit_project_info",
+            row=0
         )
         
         timing_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
             label="タイミング設定",
             custom_id="edit_timing",
-            disabled=not project["require_confirmation"]
+            disabled=not project["require_confirmation"],
+            row=0
         )
         
         # 2段目：定期確認切り替えボタン、要約入力切り替えボタン
@@ -209,7 +213,8 @@ class ProjectSettingCog(commands.Cog):
         confirmation_button = discord.ui.Button(
             style=confirmation_style,
             label=confirmation_label,
-            custom_id="toggle_confirmation"
+            custom_id="toggle_confirmation",
+            row=1
         )
         
         modal_style = discord.ButtonStyle.success if project["require_modal"] else discord.ButtonStyle.secondary
@@ -218,7 +223,8 @@ class ProjectSettingCog(commands.Cog):
             style=modal_style,
             label=modal_label,
             custom_id="toggle_modal",
-            disabled=not project["require_confirmation"]
+            disabled=not project["require_confirmation"],
+            row=1
         )
         
         # 3段目：メンバー管理用のUserSelect
@@ -226,7 +232,8 @@ class ProjectSettingCog(commands.Cog):
             placeholder="メンバーを追加/削除",
             min_values=1,
             max_values=25,
-            custom_id=f"user_select_{project_id}"
+            custom_id=f"user_select_{project_id}",
+            row=2
         )
         user_select.callback = self._user_select_callback
         
@@ -234,7 +241,8 @@ class ProjectSettingCog(commands.Cog):
         archive_button = discord.ui.Button(
             style=discord.ButtonStyle.danger,
             label="プロジェクトアーカイブ",
-            custom_id="archive_project"
+            custom_id="archive_project",
+            row=3
         )
         
         # ボタンコールバック設定
@@ -244,7 +252,7 @@ class ProjectSettingCog(commands.Cog):
         modal_button.callback = lambda i: self._toggle_modal_callback(i, project)
         archive_button.callback = lambda i: self._archive_project_callback(i, project)
         
-        # Viewにボタンを順序通りに追加
+        # Viewにボタンを追加
         view.add_item(edit_button)
         view.add_item(timing_button)
         view.add_item(confirmation_button)
@@ -387,7 +395,8 @@ class ProjectSettingCog(commands.Cog):
             confirm_button = discord.ui.Button(
                 style=discord.ButtonStyle.success,
                 label="確認",
-                custom_id="confirm_member_changes"
+                custom_id="confirm_member_changes",
+                row=0
             )
             confirm_button.callback = lambda i: self._confirm_member_changes(i, project_id, to_add, to_remove)
             view.add_item(confirm_button)
@@ -396,7 +405,8 @@ class ProjectSettingCog(commands.Cog):
         back_button = discord.ui.Button(
             style=discord.ButtonStyle.secondary,
             label="戻る",
-            custom_id="back_to_project_detail"
+            custom_id="back_to_project_detail",
+            row=0
         )
         back_button.callback = lambda i: self._show_project_detail_panel(i, project_id)
         view.add_item(back_button)
@@ -613,14 +623,16 @@ class ProjectSettingCog(commands.Cog):
         edit_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
             label="概要編集",
-            custom_id="edit_creation_info"
+            custom_id="edit_creation_info",
+            row=0
         )
         
         timing_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
             label="タイミング設定",
             custom_id="edit_creation_timing",
-            disabled=not temp_project_data["require_confirmation"]
+            disabled=not temp_project_data["require_confirmation"],
+            row=0
         )
         
         # 2段目：定期確認切り替えボタン、要約入力切り替えボタン
@@ -629,7 +641,8 @@ class ProjectSettingCog(commands.Cog):
         confirmation_button = discord.ui.Button(
             style=confirmation_style,
             label=confirmation_label,
-            custom_id="toggle_creation_confirmation"
+            custom_id="toggle_creation_confirmation",
+            row=1
         )
         
         modal_style = discord.ButtonStyle.success if temp_project_data["require_modal"] else discord.ButtonStyle.secondary
@@ -638,14 +651,16 @@ class ProjectSettingCog(commands.Cog):
             style=modal_style,
             label=modal_label,
             custom_id="toggle_creation_modal",
-            disabled=not temp_project_data["require_confirmation"]
+            disabled=not temp_project_data["require_confirmation"],
+            row=1
         )
         
         # 3段目：作成ボタン
         create_button = discord.ui.Button(
             style=discord.ButtonStyle.success,
             label="作成",
-            custom_id="create_project"
+            custom_id="create_project",
+            row=2
         )
         
         # ボタンコールバック設定
@@ -655,7 +670,7 @@ class ProjectSettingCog(commands.Cog):
         modal_button.callback = lambda i: self._toggle_creation_modal_callback(i, guild_id, user_id, temp_project_data)
         create_button.callback = lambda i: self._create_project_callback(i, guild_id, user_id, temp_project_data)
         
-        # Viewにボタンを順序通りに追加
+        # Viewにボタンを追加
         view.add_item(edit_button)
         view.add_item(timing_button)
         view.add_item(confirmation_button)
@@ -953,14 +968,16 @@ class ProjectSettingCog(commands.Cog):
         yes_button = discord.ui.Button(
             style=discord.ButtonStyle.danger,
             label="はい、アーカイブします",
-            custom_id="confirm_archive"
+            custom_id="confirm_archive",
+            row=0
         )
         
         # 「いいえ」ボタン
         no_button = discord.ui.Button(
             style=discord.ButtonStyle.secondary,
             label="いいえ、戻ります",
-            custom_id="cancel_archive"
+            custom_id="cancel_archive",
+            row=0
         )
         
         # 「はい」ボタンのコールバック

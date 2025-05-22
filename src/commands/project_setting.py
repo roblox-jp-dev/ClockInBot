@@ -521,17 +521,17 @@ class ProjectSettingCog(commands.Cog):
                 try:
                     check_interval = int(check_interval_input.value) * 60
                     if check_interval <= 0:
-                        check_interval = 1800  # デフォルト30分
+                        check_interval = 3600  # デフォルト60分
                 except ValueError:
-                    check_interval = 1800  # デフォルト30分
+                    check_interval = 3600  # デフォルト60分
                 
                 # デフォルトタイムアウトを秒に変換
                 try:
                     default_timeout = int(default_timeout_input.value) * 60
                     if default_timeout <= 0:
-                        default_timeout = 3600  # デフォルト60分
+                        default_timeout = 900  # デフォルト15分
                 except ValueError:
-                    default_timeout = 3600  # デフォルト60分
+                    default_timeout = 900  # デフォルト15分
                 
                 # デフォルトタイムアウトが確認間隔より短い場合は調整
                 if default_timeout < check_interval:
@@ -592,8 +592,8 @@ class ProjectSettingCog(commands.Cog):
                     "description": description_input.value,
                     "require_confirmation": True,  # デフォルト値
                     "require_modal": True,  # デフォルト値
-                    "check_interval": 1800,  # デフォルト30分
-                    "default_timeout": 3600  # デフォルト60分
+                    "check_interval": 3600,  # デフォルト60分
+                    "default_timeout": 900  # デフォルト15分
                 }
                 
                 # プロジェクト作成プレビュー画面を表示
@@ -814,17 +814,17 @@ class ProjectSettingCog(commands.Cog):
                 try:
                     check_interval = int(check_interval_input.value) * 60
                     if check_interval <= 0:
-                        check_interval = 1800  # デフォルト30分
+                        check_interval = 3600  # デフォルト60分
                 except ValueError:
-                    check_interval = 1800  # デフォルト30分
+                    check_interval = 3600  # デフォルト60分
                 
                 # デフォルトタイムアウトを秒に変換
                 try:
                     default_timeout = int(default_timeout_input.value) * 60
                     if default_timeout <= 0:
-                        default_timeout = 3600  # デフォルト60分
+                        default_timeout = 900  # デフォルト15分
                 except ValueError:
-                    default_timeout = 3600  # デフォルト60分
+                    default_timeout = 900  # デフォルト15分
                 
                 # デフォルトタイムアウトが確認間隔より短い場合は調整
                 if default_timeout < check_interval:

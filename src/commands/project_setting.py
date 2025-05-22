@@ -204,8 +204,8 @@ class ProjectSettingCog(commands.Cog):
                 except ValueError:
                     default_timeout = 3600  # デフォルト60分
                 
-                # デフォルトタイムアウトが確認間隔より短い場合は調整
-                if default_timeout < check_interval:
+                # デフォルトタイムアウトが確認間隔より長い場合は調整
+                if check_interval < default_timeout:
                     default_timeout = check_interval
                 
                 # ユーザー情報を取得
@@ -355,8 +355,8 @@ class ProjectSettingCog(commands.Cog):
                     except ValueError:
                         default_timeout = 3600  # デフォルト60分
                     
-                    # デフォルトタイムアウトが確認間隔より短い場合は調整
-                    if default_timeout < check_interval:
+                    # デフォルトタイムアウトが確認間隔より長い場合は調整
+                    if check_interval < default_timeout:
                         default_timeout = check_interval
                     
                     # プロジェクトを更新

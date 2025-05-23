@@ -30,12 +30,7 @@ _updating_attendance_channels: Set[int] = set()
 # コマンドモジュール一覧
 COMMAND_MODULES = [
     'src.commands.setup',
-    'src.commands.status',
-    'src.commands.today',
-    'src.commands.project_list',
     'src.commands.project_setting',
-    'src.commands.log',
-    'src.commands.export',
     'src.commands.user_add',
     'src.commands.user_remove',
 ]

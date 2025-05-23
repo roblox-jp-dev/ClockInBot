@@ -1,3 +1,4 @@
+# src/tasks/scheduler.py
 import asyncio
 from datetime import datetime, timedelta, timezone
 import discord
@@ -60,10 +61,12 @@ class AttendanceScheduler:
                         a.guild_user_id, 
                         a.project_id, 
                         a.start_time,
+                        a.start_message_id,
                         p.require_confirmation,
                         p.check_interval,
                         p.default_timeout,
                         u.user_id,
+                        u.guild_id,
                         g.locale,
                         c.channel_id
                     FROM attendance_sessions a
@@ -105,7 +108,7 @@ class AttendanceScheduler:
         
         # 未応答の確認がある場合、自動終了をチェック
         if pending_confirmations:
-            await self._check_timeout(session_id, pending_confirmations, default_timeout, now)
+            await self._check_timeout(session_id, pending_confirmations, default_timeout, now, session_data)
             return
         
         # 次回確認タイミングを計算
@@ -163,7 +166,8 @@ class AttendanceScheduler:
         session_id: int, 
         pending_confirmations: List[Dict[str, Any]], 
         default_timeout: int, 
-        now: datetime
+        now: datetime,
+        session_data: Dict[str, Any]
     ):
         """未応答確認のタイムアウトをチェック"""
         
@@ -178,15 +182,176 @@ class AttendanceScheduler:
             
             # タイムアウトチェック
             if time_since_prompt > default_timeout:
-                # 自動終了処理
-                await AttendanceRepository.end_session(
+                # 自動終了処理（DB更新）
+                updated_session = await AttendanceRepository.end_session(
                     session_id,
                     end_summary="自動終了: 応答なし",
                     status="auto"
                 )
                 
+                if updated_session:
+                    # UI更新処理を実行
+                    await self._update_ui_for_auto_end(session_data, updated_session)
+                
                 logger.info(f"Auto ended session {session_id} due to no response (timeout: {default_timeout}s)")
                 return
+    
+    async def _update_ui_for_auto_end(self, session_data: Dict[str, Any], updated_session: Dict[str, Any]):
+        """自動終了時のUI更新処理"""
+        try:
+            channel_id = session_data['channel_id']
+            guild_user_id = session_data['guild_user_id']
+            locale = session_data['locale']
+            start_message_id = session_data.get('start_message_id')
+            
+            if not channel_id:
+                return
+            
+            # チャンネルを取得
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                return
+            
+            # 1. 勤怠状況の固定メッセージを更新
+            channel_mapping = await ChannelRepository.get_channel_mapping(guild_user_id)
+            if channel_mapping:
+                await self._update_attendance_status_message(
+                    channel, 
+                    channel_mapping["pinned_message_id"], 
+                    guild_user_id, 
+                    locale
+                )
+            
+            # 2. 勤務開始メッセージを完了メッセージに更新
+            if start_message_id:
+                await self._update_start_message_to_auto_completion(
+                    channel,
+                    start_message_id,
+                    updated_session,
+                    session_data,
+                    locale
+                )
+            
+            # 3. 未回答の確認メッセージを削除
+            await self._cleanup_pending_confirmation_messages(session_data['session_id'], channel)
+            
+        except Exception as e:
+            logger.error(f"Error updating UI for auto end: {str(e)}")
+    
+    async def _update_attendance_status_message(
+        self, 
+        channel: discord.TextChannel, 
+        message_id: int, 
+        guild_user_id: int, 
+        locale: str
+    ):
+        """勤怠状況の固定メッセージを更新"""
+        try:
+            from ..views.attendance_view import update_attendance_message
+            await update_attendance_message(channel, message_id, guild_user_id, locale)
+        except Exception as e:
+            logger.error(f"Error updating attendance status message: {str(e)}")
+    
+    async def _update_start_message_to_auto_completion(
+        self,
+        channel: discord.TextChannel,
+        start_message_id: int,
+        session: Dict[str, Any],
+        session_data: Dict[str, Any],
+        locale: str
+    ):
+        """勤務開始メッセージを自動終了完了メッセージに更新"""
+        try:
+            # プロジェクト情報を取得
+            project = await ProjectRepository.get_project(session["project_id"])
+            
+            # 勤務時間を計算
+            duration = session["end_time"] - session["start_time"]
+            hours, remainder = divmod(int(duration.total_seconds()), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            duration_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+            
+            # 自動完了のEmbedを作成
+            embed = await self._create_auto_completion_embed(session, project, duration_str, locale)
+            
+            # メッセージを取得して更新
+            try:
+                start_message = await channel.fetch_message(start_message_id)
+                await start_message.edit(embed=embed)
+            except discord.NotFound:
+                # メッセージが見つからない場合は何もしない
+                pass
+                
+        except Exception as e:
+            logger.error(f"Error updating start message to auto completion: {str(e)}")
+    
+    async def _create_auto_completion_embed(
+        self,
+        session: Dict[str, Any],
+        project: Optional[Dict[str, Any]],
+        duration_str: str,
+        locale: str = "ja"
+    ) -> discord.Embed:
+        """自動終了完了Embedを作成"""
+        
+        embed = discord.Embed(
+            title="⚠️ 自動終了",
+            description="応答がないため自動的に勤務を終了しました",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        # プロジェクト名
+        project_name = project["name"] if project else "Unknown"
+        embed.add_field(
+            name="📋 プロジェクト",
+            value=project_name,
+            inline=True
+        )
+        
+        # 勤務時間
+        embed.add_field(
+            name="⏱️ 勤務時間",
+            value=duration_str,
+            inline=True
+        )
+        
+        # 勤務期間（開始時間と終了時間）
+        start_time = session["start_time"]
+        end_time = session["end_time"]
+        
+        start_timestamp = int(start_time.timestamp())
+        end_timestamp = int(end_time.timestamp())
+        
+        embed.add_field(
+            name="📅 勤務期間",
+            value=f"<t:{start_timestamp}:t> ～ <t:{end_timestamp}:t>",
+            inline=False
+        )
+        
+        # 終了理由
+        embed.add_field(
+            name="📝 終了理由",
+            value=session.get("end_summary", "自動終了: 応答なし"),
+            inline=False
+        )
+        
+        return embed
+    
+    async def _cleanup_pending_confirmation_messages(self, session_id: int, channel: discord.TextChannel):
+        """未回答の確認メッセージを削除"""
+        try:
+            # 未回答の確認を取得
+            pending_confirmations = await ConfirmationRepository.get_pending_confirmations(session_id)
+            
+            # 各確認メッセージを削除試行（message_idが記録されていれば）
+            for confirmation in pending_confirmations:
+                # 注意: 現在の実装では confirmation にmessage_idが含まれていないため、
+                # ここでの削除は困難。将来的にconfirmationsテーブルにmessage_idを追加することを検討
+                pass
+                
+        except Exception as e:
+            logger.error(f"Error cleaning up confirmation messages: {str(e)}")
     
     async def _send_confirmation(
         self, 

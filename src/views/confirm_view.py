@@ -1,6 +1,7 @@
+# src/views/confirm_view.py
 import discord
 from discord import ui, Interaction, ButtonStyle
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from ..database.repository import (
@@ -35,6 +36,9 @@ class ConfirmationModal(ui.Modal):
         )
         
         if updated:
+            # 勤務開始メッセージにコメントを追加
+            await self._add_comment_to_start_message(interaction)
+            
             # 完了メッセージを送信
             await interaction.response.send_message(
                 "✅ 勤務状況の確認が完了しました",
@@ -52,6 +56,46 @@ class ConfirmationModal(ui.Modal):
                 I18n.t("common.error", self.locale, message="Could not update confirmation"),
                 ephemeral=True
             )
+    
+    async def _add_comment_to_start_message(self, interaction: Interaction):
+        """勤務開始メッセージにコメントを追加"""
+        try:
+            # チャンネルIDから確認情報を取得
+            confirmation_info = await get_confirmation_info_from_channel(interaction.channel_id)
+            if not confirmation_info:
+                return
+            
+            session = confirmation_info["session"]
+            start_message_id = session.get("start_message_id")
+            
+            if not start_message_id or not self.summary.value:
+                return
+            
+            # 勤務開始メッセージを取得
+            try:
+                start_message = await interaction.channel.fetch_message(start_message_id)
+            except discord.NotFound:
+                return
+            
+            # 現在の時刻を取得
+            now = datetime.now(timezone.utc)
+            timestamp = int(now.timestamp())
+            
+            # コメント用の新しいEmbedを作成
+            comment_embed = discord.Embed(
+                description=f"<t:{timestamp}:t> - {self.summary.value}",
+                color=start_message.embeds[0].color if start_message.embeds else discord.Color.green()
+            )
+            
+            # 既存のEmbedsを取得してコメントEmbedを追加
+            existing_embeds = start_message.embeds.copy()
+            existing_embeds.append(comment_embed)
+            
+            # メッセージを更新
+            await start_message.edit(embeds=existing_embeds)
+            
+        except Exception as e:
+            print(f"Error adding comment to start message: {str(e)}")
 
 class ConfirmationView(ui.View):
     """定期確認用のView（確認ボタンのみ）"""

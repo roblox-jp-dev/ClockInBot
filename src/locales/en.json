@@ -27,21 +27,6 @@
     "project.notFound": "Project not found",
     "project.list": "Project List",
     
-    "status.working": "Working on: {project} (Start time: {start_time})",
-    "status.notWorking": "Not currently working",
-    
-    "today.summary": "Today's work record ({date})",
-    "today.total": "Total time: {hours} hours {minutes} minutes",
-    "today.noRecord": "No work record for today",
-    
-    "log.title": "Work History (Last {limit} records)",
-    "log.noRecord": "No work history",
-    "log.format": "{start} to {end} ({duration}): {project}",
-    
-    "export.generating": "Generating CSV file...",
-    "export.complete": "Exported work records as CSV",
-    "export.failed": "Export failed",
-    
     "button.startWork": "Clock In",
     "button.endWork": "Clock Out",
     "button.confirm": "Confirm",

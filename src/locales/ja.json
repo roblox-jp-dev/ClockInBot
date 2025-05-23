@@ -27,21 +27,6 @@
     "project.notFound": "プロジェクトが見つかりません",
     "project.list": "プロジェクト一覧",
     
-    "status.working": "勤務中: {project}（開始時間: {start_time}）",
-    "status.notWorking": "現在勤務していません",
-    
-    "today.summary": "本日の勤務記録 ({date})",
-    "today.total": "合計時間: {hours}時間{minutes}分",
-    "today.noRecord": "本日の勤務記録はありません",
-    
-    "log.title": "勤務履歴（最新{limit}件）",
-    "log.noRecord": "勤務履歴はありません",
-    "log.format": "{start}～{end}（{duration}）: {project}",
-    
-    "export.generating": "CSVファイルを生成中です...",
-    "export.complete": "勤務記録をCSVでエクスポートしました",
-    "export.failed": "エクスポートに失敗しました",
-    
     "button.startWork": "勤務開始",
     "button.endWork": "勤務終了",
     "button.confirm": "確認する",

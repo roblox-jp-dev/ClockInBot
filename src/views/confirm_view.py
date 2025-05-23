@@ -108,15 +108,34 @@ class ConfirmationModal(ui.Modal):
             if start_message.embeds:
                 original_color = start_message.embeds[0].color or discord.Color.green()
             
-            # コメント用の新しいEmbedを作成
-            comment_embed = discord.Embed(
-                description=f"<t:{timestamp}:t> - {self.summary.value.strip()}",
-                color=original_color
-            )
+            # 新しいコメント行
+            new_comment_line = f"<t:{timestamp}:t> - {self.summary.value.strip()}"
             
-            # 既存のEmbedsを取得してコメントEmbedを追加
             existing_embeds = start_message.embeds.copy()
-            existing_embeds.append(comment_embed)
+            
+            if len(existing_embeds) >= 2:
+                # 既にコメント用の埋め込みがある場合、そこに追加
+                comment_embed = existing_embeds[1]
+                current_description = comment_embed.description or ""
+                
+                # 既存の説明に新しいコメントを追加
+                if current_description:
+                    updated_description = f"{current_description}\n{new_comment_line}"
+                else:
+                    updated_description = new_comment_line
+                
+                # 2つ目の埋め込みを更新
+                existing_embeds[1] = discord.Embed(
+                    description=updated_description,
+                    color=original_color
+                )
+            else:
+                # コメント用の埋め込みがまだない場合、新規作成
+                comment_embed = discord.Embed(
+                    description=new_comment_line,
+                    color=original_color
+                )
+                existing_embeds.append(comment_embed)
             
             print(f"[DEBUG] Updating message with {len(existing_embeds)} embeds")
             

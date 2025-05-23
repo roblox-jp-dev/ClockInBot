@@ -109,17 +109,18 @@ class AttendanceScheduler:
         if start_time.tzinfo is None:
             start_time = start_time.replace(tzinfo=timezone.utc)
         
-        # 経過時間を計算
-        elapsed_seconds = (now - start_time).total_seconds()
-        
         # 未応答の確認を取得
         pending_confirmations = await ConfirmationRepository.get_pending_confirmations(session_id)
         
-        # 未応答の確認がある場合、自動終了をチェック
+        # 未応答の確認がある場合、自動終了をチェック（優先処理）
         if pending_confirmations:
             session_ended = await self._check_timeout(session_id, pending_confirmations, default_timeout, now, session_data)
             if session_ended:
                 return True  # セッションが終了したことを呼び出し元に通知
+            
+            # まだタイムアウトしていない場合は、新しい確認は送信しない
+            print(f"[DEBUG] Session {session_id} has pending confirmations, not sending new confirmation")
+            return False
         
         # セッションがまだアクティブかどうかを再確認（自動終了されていないか）
         current_session = await AttendanceRepository.get_session(session_id)
@@ -134,7 +135,10 @@ class AttendanceScheduler:
         
         # 確認送信が必要かチェック
         if now >= next_confirmation_time:
+            print(f"[DEBUG] Sending confirmation for session {session_id}")
             await self._send_confirmation(session_id, user_id, channel_id, locale)
+        else:
+            print(f"[DEBUG] Not time to send confirmation for session {session_id} yet. Next: {next_confirmation_time}, Now: {now}")
         
         return False  # セッションは継続中
     
@@ -152,7 +156,9 @@ class AttendanceScheduler:
         
         if not all_confirmations:
             # まだ確認がない場合、開始時間からcheck_interval後が最初の確認時刻
-            return start_time + timedelta(seconds=check_interval)
+            next_time = start_time + timedelta(seconds=check_interval)
+            print(f"[DEBUG] No confirmations yet. Next confirmation time: {next_time}")
+            return next_time
         
         # 応答済みの確認のうち最新のものを取得
         responded_confirmations = [c for c in all_confirmations if c['responded']]
@@ -167,17 +173,20 @@ class AttendanceScheduler:
                 last_response_time = last_response_time.replace(tzinfo=timezone.utc)
             
             # 最後の応答時間からcheck_interval後が次回確認時刻
-            return last_response_time + timedelta(seconds=check_interval)
+            next_time = last_response_time + timedelta(seconds=check_interval)
+            print(f"[DEBUG] Last response at {last_response_time}. Next confirmation time: {next_time}")
+            return next_time
         else:
-            # 未応答の確認がある場合、最初の確認からcheck_interval後
-            # （ただし、この関数が呼ばれる時点では未応答確認は処理済みのはず）
+            # 未応答の確認のみある場合、最初の確認からcheck_interval後
             first_confirmation = min(all_confirmations, key=lambda x: x['prompt_time'])
             prompt_time = first_confirmation['prompt_time']
             
             if prompt_time.tzinfo is None:
                 prompt_time = prompt_time.replace(tzinfo=timezone.utc)
             
-            return prompt_time + timedelta(seconds=check_interval)
+            next_time = prompt_time + timedelta(seconds=check_interval)
+            print(f"[DEBUG] Only unresponded confirmations. First prompt at {prompt_time}. Next confirmation time: {next_time}")
+            return next_time
     
     async def _check_timeout(
         self, 
@@ -202,8 +211,12 @@ class AttendanceScheduler:
             
             time_since_prompt = (now - prompt_time).total_seconds()
             
+            print(f"[DEBUG] Checking timeout for confirmation {confirmation['id']}: {time_since_prompt}s since prompt (timeout: {default_timeout}s)")
+            
             # タイムアウトチェック
-            if time_since_prompt > default_timeout:
+            if time_since_prompt >= default_timeout:
+                print(f"[DEBUG] Timeout detected! Auto-ending session {session_id}")
+                
                 # 自動終了処理（DB更新）
                 updated_session = await AttendanceRepository.end_session(
                     session_id,

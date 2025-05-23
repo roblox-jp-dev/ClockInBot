@@ -12,10 +12,12 @@ from ..utils.i18n import I18n
 class ConfirmationModal(ui.Modal):
     """確認リクエストの応答用モーダル"""
     
-    def __init__(self, confirmation_id: int, locale: str):
+    def __init__(self, confirmation_id: int, session_id: int, start_message_id: Optional[int], locale: str):
         super().__init__(title=I18n.t("modal.summary", locale))
         
         self.confirmation_id = confirmation_id
+        self.session_id = session_id
+        self.start_message_id = start_message_id
         self.locale = locale
         
         # 要約入力フィールド
@@ -32,6 +34,7 @@ class ConfirmationModal(ui.Modal):
         try:
             print(f"[DEBUG] Modal submitted with confirmation_id: {self.confirmation_id}")
             print(f"[DEBUG] Summary value: '{self.summary.value}'")
+            print(f"[DEBUG] Start message ID: {self.start_message_id}")
             
             # 確認リクエストに応答
             updated = await ConfirmationRepository.respond_to_confirmation(
@@ -42,21 +45,22 @@ class ConfirmationModal(ui.Modal):
             print(f"[DEBUG] Database update result: {updated}")
             
             if updated:
-                # 応答を送信（先にレスポンスを返す）
+                # 応答を送信
                 await interaction.response.send_message(
                     "✅ 勤務状況の確認が完了しました",
                     ephemeral=True,
                     delete_after=3
                 )
                 
-                # 勤務開始メッセージにコメントを追加（レスポンス後に実行）
-                try:
-                    await self._add_comment_to_start_message(interaction)
-                    print("[DEBUG] Comment added successfully")
-                except Exception as e:
-                    print(f"[DEBUG] Error adding comment: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
+                # 勤務開始メッセージにコメントを追加
+                if self.start_message_id and self.summary.value and self.summary.value.strip():
+                    try:
+                        await self._add_comment_to_start_message(interaction)
+                        print("[DEBUG] Comment added successfully")
+                    except Exception as e:
+                        print(f"[DEBUG] Error adding comment: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
                 
                 # 確認メッセージを削除
                 try:
@@ -83,47 +87,17 @@ class ConfirmationModal(ui.Modal):
                         "エラーが発生しました。もう一度お試しください。",
                         ephemeral=True
                     )
-                else:
-                    await interaction.followup.send(
-                        "エラーが発生しました。もう一度お試しください。",
-                        ephemeral=True
-                    )
             except:
                 pass
     
     async def _add_comment_to_start_message(self, interaction: Interaction):
         """勤務開始メッセージにコメントを追加"""
         try:
-            # 入力内容が空の場合は何もしない
-            if not self.summary.value or not self.summary.value.strip():
-                print("[DEBUG] No summary to add, skipping comment addition")
-                return
-            
-            # チャンネルIDから確認情報を取得
-            confirmation_info = await get_confirmation_info_from_channel(interaction.channel_id)
-            if not confirmation_info:
-                print("[DEBUG] Could not get confirmation info from channel")
-                return
-            
-            session = confirmation_info["session"]
-            start_message_id = session.get("start_message_id")
-            
-            if not start_message_id:
-                print("[DEBUG] No start_message_id found in session")
-                return
-            
-            print(f"[DEBUG] Adding comment to message {start_message_id}: '{self.summary.value}'")
+            print(f"[DEBUG] Adding comment to message {self.start_message_id}: '{self.summary.value}'")
             
             # 勤務開始メッセージを取得
-            try:
-                start_message = await interaction.channel.fetch_message(start_message_id)
-                print(f"[DEBUG] Found start message with {len(start_message.embeds)} embeds")
-            except discord.NotFound:
-                print("[DEBUG] Start message not found")
-                return
-            except Exception as e:
-                print(f"[DEBUG] Error fetching start message: {str(e)}")
-                return
+            start_message = await interaction.channel.fetch_message(self.start_message_id)
+            print(f"[DEBUG] Found start message with {len(start_message.embeds)} embeds")
             
             # 現在の時刻を取得
             now = datetime.now(timezone.utc)
@@ -150,6 +124,8 @@ class ConfirmationModal(ui.Modal):
             await start_message.edit(embeds=existing_embeds)
             print("[DEBUG] Successfully updated start message with comment")
             
+        except discord.NotFound:
+            print("[DEBUG] Start message not found")
         except Exception as e:
             print(f"[DEBUG] Error in _add_comment_to_start_message: {str(e)}")
             import traceback
@@ -158,10 +134,11 @@ class ConfirmationModal(ui.Modal):
 class ConfirmationView(ui.View):
     """定期確認用のView（確認ボタンのみ）"""
     
-    def __init__(self, confirmation_id: int, session_id: int, locale: str = "ja"):
+    def __init__(self, confirmation_id: int, session_id: int, start_message_id: Optional[int], locale: str = "ja"):
         super().__init__(timeout=600)  # 10分でタイムアウト
         self.confirmation_id = confirmation_id
         self.session_id = session_id
+        self.start_message_id = start_message_id
         self.locale = locale
         
         # 確認ボタンのみ追加
@@ -216,10 +193,6 @@ async def get_confirmation_info_from_channel(channel_id: int) -> Optional[Dict[s
         
         print(f"[DEBUG] Found active session: {active_session['id']}")
         
-        # セッションのすべての確認を取得（応答済みも含む）
-        all_confirmations = await ConfirmationRepository.get_session_confirmations(active_session["id"])
-        print(f"[DEBUG] Found {len(all_confirmations)} total confirmations")
-        
         # 未回答の確認を取得
         pending_confirmations = await ConfirmationRepository.get_pending_confirmations(active_session["id"])
         print(f"[DEBUG] Found {len(pending_confirmations)} pending confirmations")
@@ -262,8 +235,10 @@ async def handle_confirm_button(interaction: discord.Interaction):
         
         confirmation = confirmation_info["confirmation"]
         session = confirmation_info["session"]
+        start_message_id = session.get("start_message_id")
         
         print(f"[DEBUG] Processing confirmation {confirmation['id']} for session {session['id']}")
+        print(f"[DEBUG] Start message ID: {start_message_id}")
         
         # サーバー設定から言語を取得
         from ..database.repository import GuildRepository
@@ -275,8 +250,8 @@ async def handle_confirm_button(interaction: discord.Interaction):
         
         if project and project.get("require_modal", True):
             print("[DEBUG] Showing modal for confirmation")
-            # モーダルを表示する
-            modal = ConfirmationModal(confirmation["id"], locale)
+            # モーダルを表示する（start_message_idを渡す）
+            modal = ConfirmationModal(confirmation["id"], session["id"], start_message_id, locale)
             await interaction.response.send_modal(modal)
         else:
             print("[DEBUG] Processing confirmation without modal")
@@ -337,6 +312,11 @@ async def send_confirmation_request(
         confirmation = await ConfirmationRepository.create_confirmation(session_id)
         print(f"[DEBUG] Created confirmation with id {confirmation['id']}")
         
+        # セッション情報を取得してstart_message_idを取得
+        session = await AttendanceRepository.get_session(session_id)
+        start_message_id = session.get("start_message_id") if session else None
+        print(f"[DEBUG] Session start_message_id: {start_message_id}")
+        
         # チャンネルを取得
         channel = bot.get_channel(channel_id)
         if not channel:
@@ -357,8 +337,8 @@ async def send_confirmation_request(
             timestamp=datetime.now()
         )
         
-        # Viewを作成（確認ボタンのみ）
-        view = ConfirmationView(confirmation["id"], session_id, locale)
+        # Viewを作成（start_message_idを渡す）
+        view = ConfirmationView(confirmation["id"], session_id, start_message_id, locale)
         
         # メッセージを送信
         message = await channel.send(

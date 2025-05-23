@@ -327,7 +327,7 @@ async def send_confirmation_request(
     try:
         print(f"[DEBUG] Sending confirmation request for session {session_id}")
         
-        # 確認リクエストをデータベースに記録
+        # 確認リクエストをデータベースに記録（message_idは後で更新）
         confirmation = await ConfirmationRepository.create_confirmation(session_id)
         print(f"[DEBUG] Created confirmation with id {confirmation['id']}")
         
@@ -365,6 +365,12 @@ async def send_confirmation_request(
             embed=embed,
             view=view,
             delete_after=600  # 10分後に自動削除
+        )
+        
+        # 送信されたメッセージのIDをDBに記録
+        await ConfirmationRepository.update_confirmation_message_id(
+            confirmation["id"], 
+            message.id
         )
         
         # Viewのメッセージを設定

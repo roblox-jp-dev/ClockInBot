@@ -1,3 +1,4 @@
+# src/database/models.py
 from datetime import datetime
 import asyncpg
 from typing import Optional, List, Dict, Any, Union
@@ -102,7 +103,7 @@ class Database:
                 )
             ''')
             
-            # confirmations テーブル作成
+            # confirmations テーブル作成（message_idカラムを追加）
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS confirmations (
                     id                   BIGSERIAL    PRIMARY KEY,
@@ -111,14 +112,22 @@ class Database:
                     responded            BOOLEAN      NOT NULL DEFAULT false,
                     response_time        TIMESTAMPTZ,
                     summary              TEXT,
+                    message_id           BIGINT,
                     created_at           TIMESTAMPTZ  NOT NULL DEFAULT now()
                 )
             ''')
             
+            # 既存のテーブルにカラムを追加（マイグレーション）
             await conn.execute('''
                 ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS start_message_id BIGINT
             ''')
+            
+            # confirmationsテーブルにmessage_idカラムを追加（マイグレーション）
+            await conn.execute('''
+                ALTER TABLE confirmations ADD COLUMN IF NOT EXISTS message_id BIGINT
+            ''')
 
+            # インデックス作成
             await conn.execute('''
                 CREATE INDEX IF NOT EXISTS idx_attendance_sessions_guild_user_id
                 ON attendance_sessions(guild_user_id)

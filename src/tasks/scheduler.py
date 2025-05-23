@@ -427,12 +427,25 @@ class AttendanceScheduler:
             # 未回答の確認を取得
             pending_confirmations = await ConfirmationRepository.get_pending_confirmations(session_id)
             
-            # 各確認メッセージを削除試行（message_idが記録されていれば）
+            # 各確認メッセージを削除
             for confirmation in pending_confirmations:
-                # 注意: 現在の実装では confirmation にmessage_idが含まれていないため、
-                # ここでの削除は困難。将来的にconfirmationsテーブルにmessage_idを追加することを検討
-                pass
-                
+                message_id = confirmation.get('message_id')
+                if message_id:
+                    try:
+                        message = await channel.fetch_message(message_id)
+                        await message.delete()
+                        logger.info(f"Deleted pending confirmation message {message_id} for session {session_id}")
+                    except discord.NotFound:
+                        # メッセージが既に削除されている場合は無視
+                        logger.debug(f"Confirmation message {message_id} already deleted")
+                    except discord.Forbidden:
+                        # 削除権限がない場合
+                        logger.warning(f"No permission to delete confirmation message {message_id}")
+                    except Exception as e:
+                        logger.error(f"Error deleting confirmation message {message_id}: {str(e)}")
+                else:
+                    logger.debug(f"No message_id recorded for confirmation {confirmation['id']}")
+                    
         except Exception as e:
             logger.error(f"Error cleaning up confirmation messages: {str(e)}")
     

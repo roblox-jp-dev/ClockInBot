@@ -529,20 +529,31 @@ class ConfirmationRepository:
     """確認処理に関するデータベース操作"""
     
     @staticmethod
-    async def create_confirmation(session_id: int) -> Dict[str, Any]:
+    async def create_confirmation(session_id: int, message_id: int = None) -> Dict[str, Any]:
         """新しい確認リクエストを作成"""
         pool = Database.get_pool()
         now = datetime.now()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 '''
-                INSERT INTO confirmations (session_id, prompt_time)
-                VALUES ($1, $2)
+                INSERT INTO confirmations (session_id, prompt_time, message_id)
+                VALUES ($1, $2, $3)
                 RETURNING *
                 ''',
-                session_id, now
+                session_id, now, message_id
             )
             return dict(row)
+    
+    @staticmethod
+    async def update_confirmation_message_id(confirmation_id: int, message_id: int) -> bool:
+        """確認リクエストのメッセージIDを更新"""
+        pool = Database.get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                'UPDATE confirmations SET message_id = $1 WHERE id = $2',
+                message_id, confirmation_id
+            )
+            return 'UPDATE' in result
     
     @staticmethod
     async def respond_to_confirmation(confirmation_id: int, summary: str) -> Optional[Dict[str, Any]]:

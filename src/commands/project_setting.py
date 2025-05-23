@@ -826,8 +826,8 @@ class ProjectSettingCog(commands.Cog):
                 except ValueError:
                     default_timeout = 900  # デフォルト15分
                 
-                # デフォルトタイムアウトが確認間隔より短い場合は調整
-                if default_timeout < check_interval:
+                # デフォルトタイムアウトが確認間隔より長い場合は調整
+                if default_timeout > check_interval:
                     default_timeout = check_interval
                 
                 # 一時データを更新

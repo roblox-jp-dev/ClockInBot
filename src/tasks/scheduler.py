@@ -78,13 +78,22 @@ class AttendanceScheduler:
                 ''')
                 
                 for row in rows:
-                    await self._process_session(row)
+                    # セッション処理（自動終了が発生した場合はTrueを返す）
+                    session_ended = await self._process_session(row)
+                    
+                    # セッションが終了した場合は、そのセッションの処理を停止
+                    if session_ended:
+                        continue
         
         except Exception as e:
             logger.error(f"Error in check_active_sessions: {str(e)}")
     
-    async def _process_session(self, session_data: Dict[str, Any]):
-        """個別セッションの確認処理"""
+    async def _process_session(self, session_data: Dict[str, Any]) -> bool:
+        """個別セッションの確認処理
+        
+        Returns:
+            bool: セッションが自動終了された場合はTrue、継続中の場合はFalse
+        """
         session_id = session_data['session_id']
         start_time = session_data['start_time']
         check_interval = session_data['check_interval']
@@ -108,8 +117,15 @@ class AttendanceScheduler:
         
         # 未応答の確認がある場合、自動終了をチェック
         if pending_confirmations:
-            await self._check_timeout(session_id, pending_confirmations, default_timeout, now, session_data)
-            return
+            session_ended = await self._check_timeout(session_id, pending_confirmations, default_timeout, now, session_data)
+            if session_ended:
+                return True  # セッションが終了したことを呼び出し元に通知
+        
+        # セッションがまだアクティブかどうかを再確認（自動終了されていないか）
+        current_session = await AttendanceRepository.get_session(session_id)
+        if not current_session or current_session.get('end_time') is not None:
+            # セッションが既に終了している場合は処理を停止
+            return True
         
         # 次回確認タイミングを計算
         next_confirmation_time = await self._calculate_next_confirmation_time(
@@ -119,6 +135,8 @@ class AttendanceScheduler:
         # 確認送信が必要かチェック
         if now >= next_confirmation_time:
             await self._send_confirmation(session_id, user_id, channel_id, locale)
+        
+        return False  # セッションは継続中
     
     async def _calculate_next_confirmation_time(
         self, 
@@ -168,8 +186,12 @@ class AttendanceScheduler:
         default_timeout: int, 
         now: datetime,
         session_data: Dict[str, Any]
-    ):
-        """未応答確認のタイムアウトをチェック"""
+    ) -> bool:
+        """未応答確認のタイムアウトをチェック
+        
+        Returns:
+            bool: セッションが自動終了された場合はTrue、まだ継続中の場合はFalse
+        """
         
         for confirmation in pending_confirmations:
             prompt_time = confirmation['prompt_time']
@@ -194,7 +216,9 @@ class AttendanceScheduler:
                     await self._update_ui_for_auto_end(session_data, updated_session)
                 
                 logger.info(f"Auto ended session {session_id} due to no response (timeout: {default_timeout}s)")
-                return
+                return True  # セッションが終了したことを通知
+        
+        return False  # まだタイムアウトしていない
     
     async def _update_ui_for_auto_end(self, session_data: Dict[str, Any], updated_session: Dict[str, Any]):
         """自動終了時のUI更新処理"""
@@ -274,10 +298,20 @@ class AttendanceScheduler:
             # 自動完了のEmbedを作成
             embed = await self._create_auto_completion_embed(session, project, duration_str, locale)
             
-            # メッセージを取得して更新
+            # メッセージを取得して更新（既存のコメントEmbedsは保持）
             try:
                 start_message = await channel.fetch_message(start_message_id)
-                await start_message.edit(embed=embed)
+                
+                # 既存のコメントEmbedsを保持
+                existing_embeds = start_message.embeds.copy()
+                
+                # 最初のEmbedを自動完了Embedに置き換え
+                if existing_embeds:
+                    existing_embeds[0] = embed
+                else:
+                    existing_embeds = [embed]
+                
+                await start_message.edit(embeds=existing_embeds)
             except discord.NotFound:
                 # メッセージが見つからない場合は何もしない
                 pass

@@ -29,6 +29,9 @@ class ConfirmationModal(ui.Modal):
         self.add_item(self.summary)
     
     async def on_submit(self, interaction: Interaction):
+        # まず応答をdefer（重要：先にdeferする）
+        await interaction.response.defer(ephemeral=True)
+        
         # 確認リクエストに応答
         updated = await ConfirmationRepository.respond_to_confirmation(
             self.confirmation_id,
@@ -36,11 +39,11 @@ class ConfirmationModal(ui.Modal):
         )
         
         if updated:
-            # 勤務開始メッセージにコメントを追加
+            # 勤務開始メッセージにコメントを追加（deferした後なので実行される）
             await self._add_comment_to_start_message(interaction)
             
             # 完了メッセージを送信
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "✅ 勤務状況の確認が完了しました",
                 ephemeral=True,
                 delete_after=3
@@ -52,7 +55,7 @@ class ConfirmationModal(ui.Modal):
             except:
                 pass
         else:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 I18n.t("common.error", self.locale, message="Could not update confirmation"),
                 ephemeral=True
             )
@@ -60,31 +63,45 @@ class ConfirmationModal(ui.Modal):
     async def _add_comment_to_start_message(self, interaction: Interaction):
         """勤務開始メッセージにコメントを追加"""
         try:
+            # 入力内容が空の場合は何もしない
+            if not self.summary.value or not self.summary.value.strip():
+                return
+            
             # チャンネルIDから確認情報を取得
             confirmation_info = await get_confirmation_info_from_channel(interaction.channel_id)
             if not confirmation_info:
+                print("Error: confirmation_info not found")
                 return
             
             session = confirmation_info["session"]
             start_message_id = session.get("start_message_id")
             
-            if not start_message_id or not self.summary.value:
+            if not start_message_id:
+                print("Error: start_message_id not found")
                 return
+            
+            print(f"Adding comment to message {start_message_id}: {self.summary.value}")
             
             # 勤務開始メッセージを取得
             try:
                 start_message = await interaction.channel.fetch_message(start_message_id)
             except discord.NotFound:
+                print("Error: start message not found")
                 return
             
             # 現在の時刻を取得
             now = datetime.now(timezone.utc)
             timestamp = int(now.timestamp())
             
+            # 元のEmbedの色を取得
+            original_color = discord.Color.green()  # デフォルト
+            if start_message.embeds:
+                original_color = start_message.embeds[0].color or discord.Color.green()
+            
             # コメント用の新しいEmbedを作成
             comment_embed = discord.Embed(
-                description=f"<t:{timestamp}:t> - {self.summary.value}",
-                color=start_message.embeds[0].color if start_message.embeds else discord.Color.green()
+                description=f"<t:{timestamp}:t> - {self.summary.value.strip()}",
+                color=original_color
             )
             
             # 既存のEmbedsを取得してコメントEmbedを追加
@@ -93,9 +110,12 @@ class ConfirmationModal(ui.Modal):
             
             # メッセージを更新
             await start_message.edit(embeds=existing_embeds)
+            print(f"Successfully added comment to start message")
             
         except Exception as e:
             print(f"Error adding comment to start message: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
 class ConfirmationView(ui.View):
     """定期確認用のView（確認ボタンのみ）"""

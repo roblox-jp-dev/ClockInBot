@@ -115,9 +115,28 @@ class Database:
                 )
             ''')
             
-            # 既存のテーブルにstart_message_idカラムを追加（存在しない場合のみ）
             await conn.execute('''
                 ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS start_message_id BIGINT
+            ''')
+
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_attendance_sessions_guild_user_id
+                ON attendance_sessions(guild_user_id)
+            ''')
+
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_attendance_sessions_start_time
+                ON attendance_sessions(start_time)
+            ''')
+
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_confirmations_session_id
+                ON confirmations(session_id)
+            ''')
+
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_project_members_project_id
+                ON project_members(project_id)
             ''')
 
     @classmethod

@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Optional, Dict, Any, List
 
-from ..database.repository import ProjectRepository, UserRepository, ProjectMemberRepository
+from ..database.repository import ProjectRepository, UserRepository, ProjectMemberRepository, GuildRepository
 from ..utils.i18n import I18n
 from ..utils.logger import setup_logger
 
@@ -54,6 +54,18 @@ class ProjectSettingCog(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     async def project_setting(self, interaction: discord.Interaction):
         """プロジェクト設定パネルを表示するコマンド"""
+        
+        # 権限チェック
+        if not interaction.user.guild_permissions.administrator:
+            # サーバー設定から言語を取得
+            guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+            locale = guild_settings["locale"] if guild_settings else "ja"
+            await interaction.response.send_message(
+                I18n.t("common.noPermission", locale),
+                ephemeral=True
+            )
+            return
+        
         await interaction.response.defer(ephemeral=True)
         
         try:
@@ -65,15 +77,22 @@ class ProjectSettingCog(commands.Cog):
         
         except Exception as e:
             logger.error(f"Error in project_setting command: {str(e)}")
-            await interaction.followup.send(I18n.t("common.error", message=str(e)), ephemeral=True)
+            # サーバー設定から言語を取得
+            guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+            locale = guild_settings["locale"] if guild_settings else "ja"
+            await interaction.followup.send(I18n.t("common.error", locale, message=str(e)), ephemeral=True)
     
     async def _show_main_panel(self, interaction: discord.Interaction, guild_id: int, user_id: int):
         """メインパネルを表示"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # プロジェクト一覧を取得（アーカイブ済みも含む）
         projects = await ProjectRepository.get_all_projects(guild_id, include_archived=True)
         
         # メインパネルのEmbedを作成
-        embed = await self._create_main_panel_embed(projects)
+        embed = await self._create_main_panel_embed(projects, locale)
         
         # 操作用のViewを作成
         view = ProjectSettingView(guild_id)
@@ -81,7 +100,7 @@ class ProjectSettingCog(commands.Cog):
         # 新規プロジェクト追加ボタン
         add_button = discord.ui.Button(
             style=discord.ButtonStyle.success,
-            label="新規プロジェクト追加",
+            label=I18n.t("project.addNew", locale),
             custom_id="add_project",
             row=0
         )
@@ -93,7 +112,8 @@ class ProjectSettingCog(commands.Cog):
             edit_select = self._create_project_select_menu(
                 active_projects,
                 "edit_project_select",
-                "編集するプロジェクトを選択"
+                I18n.t("project.editProject", locale),
+                locale
             )
             edit_select.row = 1
             view.add_item(edit_select)
@@ -108,11 +128,11 @@ class ProjectSettingCog(commands.Cog):
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         view.message = message
     
-    async def _create_main_panel_embed(self, projects: List[Dict[str, Any]]) -> discord.Embed:
+    async def _create_main_panel_embed(self, projects: List[Dict[str, Any]], locale: str) -> discord.Embed:
         """メインパネルのEmbedを作成"""
         embed = discord.Embed(
-            title="プロジェクト設定",
-            description="新規プロジェクトの追加や既存プロジェクトの編集ができます",
+            title=I18n.t("project.settings", locale),
+            description=I18n.t("project.managementDescription", locale),
             color=discord.Color.blue()
         )
         
@@ -124,7 +144,7 @@ class ProjectSettingCog(commands.Cog):
             if active_projects:
                 active_text = "\n".join([f"・{p['name']}" for p in active_projects])
                 embed.add_field(
-                    name="アクティブなプロジェクト",
+                    name=I18n.t("project.activeProjects", locale),
                     value=active_text,
                     inline=False
                 )
@@ -132,14 +152,14 @@ class ProjectSettingCog(commands.Cog):
             if archived_projects:
                 archived_text = "\n".join([f"・{p['name']}" for p in archived_projects])
                 embed.add_field(
-                    name="アーカイブ済みプロジェクト",
+                    name=I18n.t("project.archivedProjects", locale),
                     value=archived_text,
                     inline=False
                 )
         
         return embed
     
-    def _create_project_select_menu(self, projects: List[Dict[str, Any]], custom_id: str, placeholder: str):
+    def _create_project_select_menu(self, projects: List[Dict[str, Any]], custom_id: str, placeholder: str, locale: str):
         """プロジェクト選択セレクトメニューを作成"""
         options = [
             discord.SelectOption(
@@ -169,13 +189,17 @@ class ProjectSettingCog(commands.Cog):
     
     async def _show_project_detail_panel(self, interaction: discord.Interaction, project_id: int):
         """プロジェクト詳細設定パネルを表示"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # プロジェクト情報を取得
         project = await ProjectRepository.get_project(project_id)
         if not project:
             await interaction.response.edit_message(
                 embed=discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("project.notFound"),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("project.notFound", locale),
                     color=discord.Color.red()
                 ),
                 view=None
@@ -186,7 +210,7 @@ class ProjectSettingCog(commands.Cog):
         members = await ProjectMemberRepository.get_project_members(project_id)
         
         # 詳細パネルのEmbedを作成
-        embed = await self._create_project_detail_embed(project, members)
+        embed = await self._create_project_detail_embed(project, members, locale)
         
         # 詳細パネルのViewを作成
         view = ProjectSettingView(interaction.guild_id)
@@ -194,14 +218,14 @@ class ProjectSettingCog(commands.Cog):
         # 1段目：概要編集ボタン、タイミング設定ボタン
         edit_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
-            label="概要編集",
+            label=I18n.t("project.editInfo", locale),
             custom_id="edit_project_info",
             row=0
         )
         
         timing_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
-            label="タイミング設定",
+            label=I18n.t("project.editTiming", locale),
             custom_id="edit_timing",
             disabled=not project["require_confirmation"],
             row=0
@@ -209,7 +233,7 @@ class ProjectSettingCog(commands.Cog):
         
         # 2段目：定期確認切り替えボタン、要約入力切り替えボタン
         confirmation_style = discord.ButtonStyle.success if project["require_confirmation"] else discord.ButtonStyle.secondary
-        confirmation_label = "定期確認: ON" if project["require_confirmation"] else "定期確認: OFF"
+        confirmation_label = f"{I18n.t('project.confirmationToggle', locale)}: {I18n.t('project.on', locale) if project['require_confirmation'] else I18n.t('project.off', locale)}"
         confirmation_button = discord.ui.Button(
             style=confirmation_style,
             label=confirmation_label,
@@ -218,7 +242,7 @@ class ProjectSettingCog(commands.Cog):
         )
         
         modal_style = discord.ButtonStyle.success if project["require_modal"] else discord.ButtonStyle.secondary
-        modal_label = "要約入力: ON" if project["require_modal"] else "要約入力: OFF"
+        modal_label = f"{I18n.t('project.modalToggle', locale)}: {I18n.t('project.on', locale) if project['require_modal'] else I18n.t('project.off', locale)}"
         modal_button = discord.ui.Button(
             style=modal_style,
             label=modal_label,
@@ -229,7 +253,7 @@ class ProjectSettingCog(commands.Cog):
         
         # 3段目：メンバー管理用のUserSelect
         user_select = discord.ui.UserSelect(
-            placeholder="メンバーを追加/削除",
+            placeholder=I18n.t("project.addRemoveMembers", locale),
             min_values=1,
             max_values=25,
             custom_id=f"user_select_{project_id}",
@@ -240,7 +264,7 @@ class ProjectSettingCog(commands.Cog):
         # 4段目：アーカイブボタン
         archive_button = discord.ui.Button(
             style=discord.ButtonStyle.danger,
-            label="プロジェクトアーカイブ",
+            label=I18n.t("project.archive", locale),
             custom_id="archive_project",
             row=3
         )
@@ -264,17 +288,17 @@ class ProjectSettingCog(commands.Cog):
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = interaction.message
     
-    async def _create_project_detail_embed(self, project: Dict[str, Any], members: List[Dict[str, Any]]) -> discord.Embed:
+    async def _create_project_detail_embed(self, project: Dict[str, Any], members: List[Dict[str, Any]], locale: str) -> discord.Embed:
         """プロジェクト詳細パネルのEmbedを作成"""
         embed = discord.Embed(
-            title=f"📋 プロジェクト設定: {project['name']}",
+            title=f"📋 {I18n.t('project.settings', locale)}: {project['name']}",
             color=discord.Color.blue()
         )
         
         # プロジェクト情報
         embed.add_field(
-            name="説明",
-            value=project["description"] or "なし",
+            name=I18n.t("project.description", locale),
+            value=project["description"] or I18n.t("common.notFound", locale),
             inline=False
         )
         
@@ -283,17 +307,17 @@ class ProjectSettingCog(commands.Cog):
             check_interval_minutes = project["check_interval"] // 60
             timeout_minutes = project["default_timeout"] // 60
             
-            settings_text = f"・定期確認: 有効\n・確認間隔: {check_interval_minutes}分\n・タイムアウト: {timeout_minutes}分"
+            settings_text = f"・{I18n.t('project.confirmationToggle', locale)}: {I18n.t('project.enabled', locale)}\n・{I18n.t('project.checkInterval', locale)}: {check_interval_minutes}分\n・{I18n.t('project.defaultTimeout', locale)}: {timeout_minutes}分"
             
             if project["require_modal"]:
-                settings_text += "\n・要約入力: 必須"
+                settings_text += f"\n・{I18n.t('project.modalToggle', locale)}: {I18n.t('project.required', locale)}"
             else:
-                settings_text += "\n・要約入力: 任意"
+                settings_text += f"\n・{I18n.t('project.modalToggle', locale)}: {I18n.t('project.optional', locale)}"
         else:
-            settings_text = "・定期確認: 無効"
+            settings_text = f"・{I18n.t('project.confirmationToggle', locale)}: {I18n.t('project.disabled', locale)}"
         
         embed.add_field(
-            name="設定",
+            name=I18n.t("project.settingsContent", locale),
             value=settings_text,
             inline=False
         )
@@ -302,14 +326,14 @@ class ProjectSettingCog(commands.Cog):
         if members:
             member_text = "\n".join([f"・{member['user_name']}" for member in members])
             embed.add_field(
-                name=f"メンバー ({len(members)}人)",
+                name=f"{I18n.t('project.members', locale)} ({len(members)}人)",
                 value=member_text,
                 inline=False
             )
         else:
             embed.add_field(
-                name="メンバー (0人)",
-                value="メンバーがいません",
+                name=f"{I18n.t('project.members', locale)} (0人)",
+                value=I18n.t("project.noMembers", locale),
                 inline=False
             )
         
@@ -344,10 +368,14 @@ class ProjectSettingCog(commands.Cog):
     
     async def _show_member_confirmation(self, interaction: discord.Interaction, project_id: int, to_add: List[int], to_remove: List[int]):
         """メンバー変更確認画面を表示"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         project = await ProjectRepository.get_project(project_id)
         
         embed = discord.Embed(
-            title=f"メンバー変更確認: {project['name']}",
+            title=f"{I18n.t('project.memberChanges', locale)}: {project['name']}",
             color=discord.Color.orange()
         )
         
@@ -362,7 +390,7 @@ class ProjectSettingCog(commands.Cog):
             
             if add_users:
                 embed.add_field(
-                    name="追加するメンバー",
+                    name=I18n.t("project.membersToAdd", locale),
                     value="\n".join([f"・{name}" for name in add_users]),
                     inline=False
                 )
@@ -378,14 +406,14 @@ class ProjectSettingCog(commands.Cog):
             
             if remove_users:
                 embed.add_field(
-                    name="削除するメンバー",
+                    name=I18n.t("project.membersToRemove", locale),
                     value="\n".join([f"・{name}" for name in remove_users]),
                     inline=False
                 )
         
         # 変更がない場合
         if not to_add and not to_remove:
-            embed.description = "変更はありません"
+            embed.description = I18n.t("project.noChanges", locale)
         
         # 確認用のViewを作成
         view = ProjectSettingView(interaction.guild_id)
@@ -394,7 +422,7 @@ class ProjectSettingCog(commands.Cog):
         if to_add or to_remove:
             confirm_button = discord.ui.Button(
                 style=discord.ButtonStyle.success,
-                label="確認",
+                label=I18n.t("project.confirm", locale),
                 custom_id="confirm_member_changes",
                 row=0
             )
@@ -404,7 +432,7 @@ class ProjectSettingCog(commands.Cog):
         # 戻るボタン
         back_button = discord.ui.Button(
             style=discord.ButtonStyle.secondary,
-            label="戻る",
+            label=I18n.t("project.back", locale),
             custom_id="back_to_project_detail",
             row=0
         )
@@ -416,6 +444,10 @@ class ProjectSettingCog(commands.Cog):
     
     async def _confirm_member_changes(self, interaction: discord.Interaction, project_id: int, to_add: List[int], to_remove: List[int]):
         """メンバー変更を実行"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         try:
             # メンバーを追加
             for guild_user_id in to_add:
@@ -432,8 +464,8 @@ class ProjectSettingCog(commands.Cog):
             logger.error(f"Error updating project members: {str(e)}")
             await interaction.response.edit_message(
                 embed=discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 ),
                 view=None
@@ -441,6 +473,10 @@ class ProjectSettingCog(commands.Cog):
     
     async def _toggle_confirmation_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
         """定期確認の切り替えコールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         try:
             new_value = not project["require_confirmation"]
             
@@ -460,8 +496,8 @@ class ProjectSettingCog(commands.Cog):
             logger.error(f"Error toggling confirmation: {str(e)}")
             await interaction.response.edit_message(
                 embed=discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 ),
                 view=None
@@ -469,6 +505,10 @@ class ProjectSettingCog(commands.Cog):
     
     async def _toggle_modal_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
         """要約入力の切り替えコールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         try:
             new_value = not project["require_modal"]
             
@@ -484,8 +524,8 @@ class ProjectSettingCog(commands.Cog):
             logger.error(f"Error toggling modal: {str(e)}")
             await interaction.response.edit_message(
                 embed=discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 ),
                 view=None
@@ -493,19 +533,23 @@ class ProjectSettingCog(commands.Cog):
     
     async def _edit_timing_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
         """タイミング設定編集のコールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # タイミング設定編集用のモーダルを表示
-        modal = discord.ui.Modal(title=f"タイミング設定: {project['name']}")
+        modal = discord.ui.Modal(title=f"{I18n.t('project.editTiming', locale)}: {project['name']}")
         
         # 確認間隔入力フィールド
         check_interval_input = discord.ui.TextInput(
-            label="確認間隔（分）",
+            label=I18n.t("project.checkInterval", locale),
             default=str(project["check_interval"] // 60),
             required=True
         )
         
         # デフォルトタイムアウト入力フィールド
         default_timeout_input = discord.ui.TextInput(
-            label="デフォルトタイムアウト（分）",
+            label=I18n.t("project.defaultTimeout", locale),
             default=str(project["default_timeout"] // 60),
             required=True
         )
@@ -550,8 +594,8 @@ class ProjectSettingCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Error updating timing: {str(e)}")
                 error_embed = discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 )
                 await interaction.response.edit_message(embed=error_embed, view=None)
@@ -561,20 +605,24 @@ class ProjectSettingCog(commands.Cog):
     
     async def _add_project_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int):
         """新規プロジェクト追加のコールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # 新規プロジェクト追加のモーダルを表示（名前と説明のみ）
-        modal = discord.ui.Modal(title="新規プロジェクト追加")
+        modal = discord.ui.Modal(title=I18n.t("project.creation", locale))
         
         # プロジェクト名入力フィールド
         name_input = discord.ui.TextInput(
-            label="プロジェクト名",
-            placeholder="新規プロジェクト",
+            label=I18n.t("project.name", locale),
+            placeholder=I18n.t("project.newProject", locale),
             required=True
         )
         
         # 説明入力フィールド
         description_input = discord.ui.TextInput(
-            label="説明",
-            placeholder="プロジェクトの説明",
+            label=I18n.t("project.description", locale),
+            placeholder=I18n.t("project.projectDescription", locale),
             style=discord.TextStyle.paragraph,
             required=False
         )
@@ -602,8 +650,8 @@ class ProjectSettingCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Error in basic info submit: {str(e)}")
                 error_embed = discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 )
                 await interaction.response.edit_message(embed=error_embed, view=None)
@@ -613,8 +661,12 @@ class ProjectSettingCog(commands.Cog):
     
     async def _show_project_creation_preview(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
         """プロジェクト作成プレビュー画面を表示"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # プレビューEmbedを作成
-        embed = await self._create_project_creation_preview_embed(temp_project_data)
+        embed = await self._create_project_creation_preview_embed(temp_project_data, locale)
         
         # プロジェクト作成用のViewを作成
         view = ProjectCreationView(guild_id, temp_project_data)
@@ -622,14 +674,14 @@ class ProjectSettingCog(commands.Cog):
         # 1段目：概要編集ボタン、タイミング設定ボタン
         edit_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
-            label="概要編集",
+            label=I18n.t("project.editInfo", locale),
             custom_id="edit_creation_info",
             row=0
         )
         
         timing_button = discord.ui.Button(
             style=discord.ButtonStyle.primary,
-            label="タイミング設定",
+            label=I18n.t("project.editTiming", locale),
             custom_id="edit_creation_timing",
             disabled=not temp_project_data["require_confirmation"],
             row=0
@@ -637,7 +689,7 @@ class ProjectSettingCog(commands.Cog):
         
         # 2段目：定期確認切り替えボタン、要約入力切り替えボタン
         confirmation_style = discord.ButtonStyle.success if temp_project_data["require_confirmation"] else discord.ButtonStyle.secondary
-        confirmation_label = "定期確認: ON" if temp_project_data["require_confirmation"] else "定期確認: OFF"
+        confirmation_label = f"{I18n.t('project.confirmationToggle', locale)}: {I18n.t('project.on', locale) if temp_project_data['require_confirmation'] else I18n.t('project.off', locale)}"
         confirmation_button = discord.ui.Button(
             style=confirmation_style,
             label=confirmation_label,
@@ -646,7 +698,7 @@ class ProjectSettingCog(commands.Cog):
         )
         
         modal_style = discord.ButtonStyle.success if temp_project_data["require_modal"] else discord.ButtonStyle.secondary
-        modal_label = "要約入力: ON" if temp_project_data["require_modal"] else "要約入力: OFF"
+        modal_label = f"{I18n.t('project.modalToggle', locale)}: {I18n.t('project.on', locale) if temp_project_data['require_modal'] else I18n.t('project.off', locale)}"
         modal_button = discord.ui.Button(
             style=modal_style,
             label=modal_label,
@@ -658,7 +710,7 @@ class ProjectSettingCog(commands.Cog):
         # 3段目：作成ボタン
         create_button = discord.ui.Button(
             style=discord.ButtonStyle.success,
-            label="作成",
+            label=I18n.t("project.create", locale),
             custom_id="create_project",
             row=2
         )
@@ -681,18 +733,18 @@ class ProjectSettingCog(commands.Cog):
         await interaction.response.edit_message(embed=embed, view=view)
         view.message = interaction.message
     
-    async def _create_project_creation_preview_embed(self, temp_project_data: Dict[str, Any]) -> discord.Embed:
+    async def _create_project_creation_preview_embed(self, temp_project_data: Dict[str, Any], locale: str) -> discord.Embed:
         """プロジェクト作成プレビューのEmbedを作成"""
         embed = discord.Embed(
-            title=f"📋 プロジェクト作成プレビュー: {temp_project_data['name']}",
-            description="設定を確認して「作成」ボタンを押してください",
+            title=f"📋 {I18n.t('project.creationPreview', locale)}: {temp_project_data['name']}",
+            description=I18n.t("project.previewDescription", locale),
             color=discord.Color.orange()
         )
         
         # プロジェクト情報
         embed.add_field(
-            name="説明",
-            value=temp_project_data["description"] or "なし",
+            name=I18n.t("project.description", locale),
+            value=temp_project_data["description"] or I18n.t("common.notFound", locale),
             inline=False
         )
         
@@ -701,17 +753,17 @@ class ProjectSettingCog(commands.Cog):
             check_interval_minutes = temp_project_data["check_interval"] // 60
             timeout_minutes = temp_project_data["default_timeout"] // 60
             
-            settings_text = f"・定期確認: 有効\n・確認間隔: {check_interval_minutes}分\n・タイムアウト: {timeout_minutes}分"
+            settings_text = f"・{I18n.t('project.confirmationToggle', locale)}: {I18n.t('project.enabled', locale)}\n・{I18n.t('project.checkInterval', locale)}: {check_interval_minutes}分\n・{I18n.t('project.defaultTimeout', locale)}: {timeout_minutes}分"
             
             if temp_project_data["require_modal"]:
-                settings_text += "\n・要約入力: 必須"
+                settings_text += f"\n・{I18n.t('project.modalToggle', locale)}: {I18n.t('project.required', locale)}"
             else:
-                settings_text += "\n・要約入力: 任意"
+                settings_text += f"\n・{I18n.t('project.modalToggle', locale)}: {I18n.t('project.optional', locale)}"
         else:
-            settings_text = "・定期確認: 無効"
+            settings_text = f"・{I18n.t('project.confirmationToggle', locale)}: {I18n.t('project.disabled', locale)}"
         
         embed.add_field(
-            name="設定",
+            name=I18n.t("project.settingsContent", locale),
             value=settings_text,
             inline=False
         )
@@ -720,19 +772,23 @@ class ProjectSettingCog(commands.Cog):
     
     async def _edit_creation_info_callback(self, interaction: discord.Interaction, temp_project_data: Dict[str, Any]):
         """作成時の概要編集コールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # 概要編集用のモーダルを表示
-        modal = discord.ui.Modal(title=f"概要編集: {temp_project_data['name']}")
+        modal = discord.ui.Modal(title=f"{I18n.t('project.editInfo', locale)}: {temp_project_data['name']}")
         
         # プロジェクト名入力フィールド（既存の値をデフォルトに）
         name_input = discord.ui.TextInput(
-            label="プロジェクト名",
+            label=I18n.t("project.name", locale),
             default=temp_project_data["name"],
             required=True
         )
         
         # 説明入力フィールド
         description_input = discord.ui.TextInput(
-            label="説明",
+            label=I18n.t("project.description", locale),
             default=temp_project_data["description"] or "",
             style=discord.TextStyle.paragraph,
             required=False
@@ -755,8 +811,8 @@ class ProjectSettingCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Error updating creation info: {str(e)}")
                 error_embed = discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 )
                 await interaction.response.edit_message(embed=error_embed, view=None)
@@ -786,19 +842,23 @@ class ProjectSettingCog(commands.Cog):
     
     async def _edit_creation_timing_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
         """作成時のタイミング設定編集コールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # タイミング設定編集用のモーダルを表示
-        modal = discord.ui.Modal(title=f"タイミング設定: {temp_project_data['name']}")
+        modal = discord.ui.Modal(title=f"{I18n.t('project.editTiming', locale)}: {temp_project_data['name']}")
         
         # 確認間隔入力フィールド
         check_interval_input = discord.ui.TextInput(
-            label="確認間隔（分）",
+            label=I18n.t("project.checkInterval", locale),
             default=str(temp_project_data["check_interval"] // 60),
             required=True
         )
         
         # デフォルトタイムアウト入力フィールド
         default_timeout_input = discord.ui.TextInput(
-            label="デフォルトタイムアウト（分）",
+            label=I18n.t("project.defaultTimeout", locale),
             default=str(temp_project_data["default_timeout"] // 60),
             required=True
         )
@@ -840,8 +900,8 @@ class ProjectSettingCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Error updating creation timing: {str(e)}")
                 error_embed = discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 )
                 await interaction.response.edit_message(embed=error_embed, view=None)
@@ -851,6 +911,10 @@ class ProjectSettingCog(commands.Cog):
     
     async def _create_project_callback(self, interaction: discord.Interaction, guild_id: int, user_id: int, temp_project_data: Dict[str, Any]):
         """プロジェクト作成実行コールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         try:
             # ユーザー情報を取得
             guild_user = await UserRepository.get_guild_user(guild_id, user_id)
@@ -869,21 +933,21 @@ class ProjectSettingCog(commands.Cog):
             
             # 成功メッセージのEmbedを作成
             success_embed = discord.Embed(
-                title="✅ プロジェクト作成完了",
-                description=I18n.t("project.created", name=temp_project_data["name"]),
+                title="✅ " + I18n.t("project.creationComplete", locale),
+                description=I18n.t("project.created", locale, name=temp_project_data["name"]),
                 color=discord.Color.green()
             )
             
             if temp_project_data["require_confirmation"]:
                 success_embed.add_field(
-                    name="設定内容",
-                    value=f"・確認間隔: {temp_project_data['check_interval'] // 60}分\n・タイムアウト: {temp_project_data['default_timeout'] // 60}分",
+                    name=I18n.t("project.settingsContent", locale),
+                    value=f"・{I18n.t('project.checkInterval', locale)}: {temp_project_data['check_interval'] // 60}分\n・{I18n.t('project.defaultTimeout', locale)}: {temp_project_data['default_timeout'] // 60}分",
                     inline=False
                 )
             else:
                 success_embed.add_field(
-                    name="設定内容",
-                    value="・定期確認: 無効",
+                    name=I18n.t("project.settingsContent", locale),
+                    value=f"・{I18n.t('project.confirmationToggle', locale)}: {I18n.t('project.disabled', locale)}",
                     inline=False
                 )
             
@@ -893,27 +957,31 @@ class ProjectSettingCog(commands.Cog):
         except Exception as e:
             logger.error(f"Error creating project: {str(e)}")
             error_embed = discord.Embed(
-                title="❌ エラー",
-                description=I18n.t("common.error", message=str(e)),
+                title="❌ " + I18n.t("common.error", locale),
+                description=I18n.t("common.error", locale, message=str(e)),
                 color=discord.Color.red()
             )
             await interaction.response.edit_message(embed=error_embed, view=None)
     
     async def _edit_project_info_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
         """プロジェクト概要編集のコールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # プロジェクト編集用のモーダルを表示
-        modal = discord.ui.Modal(title=f"プロジェクト編集: {project['name']}")
+        modal = discord.ui.Modal(title=f"{I18n.t('project.editInfo', locale)}: {project['name']}")
         
         # プロジェクト名入力フィールド（既存の値をデフォルトに）
         name_input = discord.ui.TextInput(
-            label="プロジェクト名",
+            label=I18n.t("project.name", locale),
             default=project["name"],
             required=True
         )
         
         # 説明入力フィールド
         description_input = discord.ui.TextInput(
-            label="説明",
+            label=I18n.t("project.description", locale),
             default=project["description"] or "",
             style=discord.TextStyle.paragraph,
             required=False
@@ -943,8 +1011,8 @@ class ProjectSettingCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Error updating project: {str(e)}")
                 error_embed = discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 )
                 await interaction.response.edit_message(embed=error_embed, view=None)
@@ -954,10 +1022,14 @@ class ProjectSettingCog(commands.Cog):
     
     async def _archive_project_callback(self, interaction: discord.Interaction, project: Dict[str, Any]):
         """プロジェクトアーカイブのコールバック"""
+        # サーバー設定から言語を取得
+        guild_settings = await GuildRepository.get_guild_settings(interaction.guild_id)
+        locale = guild_settings["locale"] if guild_settings else "ja"
+        
         # 確認メッセージを表示
         embed = discord.Embed(
-            title=f"プロジェクト「{project['name']}」をアーカイブしますか？",
-            description="アーカイブされたプロジェクトは新規勤務登録には使用できなくなりますが、履歴からは参照可能です。",
+            title=I18n.t("project.archiveConfirm", locale, name=project['name']),
+            description=I18n.t("project.archiveDescription", locale),
             color=discord.Color.orange()
         )
         
@@ -967,7 +1039,7 @@ class ProjectSettingCog(commands.Cog):
         # 「はい」ボタン
         yes_button = discord.ui.Button(
             style=discord.ButtonStyle.danger,
-            label="はい、アーカイブします",
+            label=I18n.t("project.archiveYes", locale),
             custom_id="confirm_archive",
             row=0
         )
@@ -975,7 +1047,7 @@ class ProjectSettingCog(commands.Cog):
         # 「いいえ」ボタン
         no_button = discord.ui.Button(
             style=discord.ButtonStyle.secondary,
-            label="いいえ、戻ります",
+            label=I18n.t("project.archiveNo", locale),
             custom_id="cancel_archive",
             row=0
         )
@@ -991,8 +1063,8 @@ class ProjectSettingCog(commands.Cog):
                 
                 # 成功メッセージのEmbedを作成
                 success_embed = discord.Embed(
-                    title="🗂️ アーカイブ完了",
-                    description=I18n.t("project.archived", name=project['name']),
+                    title="🗂️ " + I18n.t("project.archiveComplete", locale),
+                    description=I18n.t("project.archived", locale, name=project['name']),
                     color=discord.Color.green()
                 )
                 
@@ -1002,8 +1074,8 @@ class ProjectSettingCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Error archiving project: {str(e)}")
                 error_embed = discord.Embed(
-                    title="❌ エラー",
-                    description=I18n.t("common.error", message=str(e)),
+                    title="❌ " + I18n.t("common.error", locale),
+                    description=I18n.t("common.error", locale, message=str(e)),
                     color=discord.Color.red()
                 )
                 await interaction.response.edit_message(embed=error_embed, view=None)

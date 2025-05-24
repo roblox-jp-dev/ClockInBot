@@ -32,22 +32,16 @@ class ConfirmationModal(ui.Modal):
     
     async def on_submit(self, interaction: Interaction):
         try:
-            print(f"[DEBUG] Modal submitted with confirmation_id: {self.confirmation_id}")
-            print(f"[DEBUG] Summary value: '{self.summary.value}'")
-            print(f"[DEBUG] Start message ID: {self.start_message_id}")
-            
             # 確認リクエストに応答
             updated = await ConfirmationRepository.respond_to_confirmation(
                 self.confirmation_id,
                 self.summary.value
             )
             
-            print(f"[DEBUG] Database update result: {updated}")
-            
             if updated:
                 # 応答を送信
                 await interaction.response.send_message(
-                    "✅ 勤務状況の確認が完了しました",
+                    "✅ " + I18n.t("attendance.confirmation", self.locale).replace("勤務状況確認: 引き続き勤務中ですか？", "勤務状況の確認が完了しました"),
                     ephemeral=True,
                     delete_after=3
                 )

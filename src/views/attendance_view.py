@@ -81,7 +81,7 @@ async def handle_start_work(interaction: discord.Interaction):
     # チャンネルからユーザー情報を取得
     channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
     if not channel_mapping:
-        await interaction.followup.send("エラー: チャンネルが見つかりません", ephemeral=True)
+        await interaction.followup.send(I18n.t("attendance.errorChannel", locale="ja"), ephemeral=True)
         return
     
     guild_user_id = channel_mapping["guild_user_id"]
@@ -103,7 +103,7 @@ async def handle_start_work(interaction: discord.Interaction):
     user_projects = await ProjectRepository.get_user_projects(interaction.guild_id, guild_user_id)
     
     if not user_projects:
-        await interaction.followup.send("参加可能なプロジェクトがありません。管理者にプロジェクトへの追加を依頼してください。", ephemeral=True)
+        await interaction.followup.send(I18n.t("attendance.noProjects", locale), ephemeral=True)
         return
     
     # プロジェクト選択のセレクトメニューを作成
@@ -127,7 +127,7 @@ async def handle_start_work(interaction: discord.Interaction):
     view.add_item(select)
     
     await interaction.followup.send(
-        "勤務するプロジェクトを選択してください：",
+        I18n.t("attendance.selectProject", locale),
         view=view,
         ephemeral=True
     )
@@ -142,7 +142,7 @@ async def handle_project_selection(interaction: discord.Interaction):
     # チャンネルからユーザー情報を取得
     channel_mapping = await ChannelRepository.get_by_channel_id(interaction.channel_id)
     if not channel_mapping:
-        await interaction.followup.send("エラー: チャンネルが見つかりません", ephemeral=True)
+        await interaction.followup.send(I18n.t("attendance.errorChannel", locale="ja"), ephemeral=True)
         return
     
     guild_user_id = channel_mapping["guild_user_id"]
@@ -155,7 +155,7 @@ async def handle_project_selection(interaction: discord.Interaction):
     # プロジェクトメンバーであることを確認
     from ..database.repository import ProjectMemberRepository
     if not await ProjectMemberRepository.is_project_member(project_id, guild_user_id):
-        await interaction.followup.send("このプロジェクトに参加していないため、勤務を開始できません。", ephemeral=True)
+        await interaction.followup.send(I18n.t("attendance.notProjectMember", locale), ephemeral=True)
         return
     
     # プロジェクト情報を取得
@@ -167,7 +167,7 @@ async def handle_project_selection(interaction: discord.Interaction):
     # プロジェクト選択画面を削除
     try:
         await interaction.edit_original_response(
-            content="プロジェクトを選択しました。",
+            content=I18n.t("attendance.projectSelected", locale),
             view=None
         )
         await asyncio.sleep(4)

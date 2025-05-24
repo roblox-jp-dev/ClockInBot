@@ -56,6 +56,9 @@ python -m src.bot
 
 [MITライセンス](LICENSE)
 
+## 免責事項
+
+
 ## 作者
 
 そば好き

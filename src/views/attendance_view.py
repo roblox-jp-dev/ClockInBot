@@ -258,7 +258,7 @@ async def handle_end_work(interaction: discord.Interaction):
         # モーダルが不要な場合はdeferを実行
         await interaction.response.defer(ephemeral=True)
     
-    # 勤務終了を記録
+# 勤務終了を記録
     updated_session = await AttendanceRepository.end_session(
         active_session["id"],
         end_summary=end_summary
@@ -271,6 +271,9 @@ async def handle_end_work(interaction: discord.Interaction):
         else:
             await interaction.followup.send(error_msg, ephemeral=True)
         return
+    
+    # 未回答の確認メッセージを削除
+    await cleanup_pending_confirmation_messages(active_session["id"], interaction.channel)
     
     # 勤務時間を計算
     duration = updated_session["end_time"] - updated_session["start_time"]
@@ -584,3 +587,29 @@ async def restore_attendance_message(
     except discord.NotFound:
         # メッセージが見つからない場合は何もしない
         pass
+
+async def cleanup_pending_confirmation_messages(session_id: int, channel: discord.TextChannel):
+    """未回答の確認メッセージを削除"""
+    try:
+        # 未回答の確認を取得
+        from ..database.repository import ConfirmationRepository
+        pending_confirmations = await ConfirmationRepository.get_pending_confirmations(session_id)
+        
+        # 各確認メッセージを削除
+        for confirmation in pending_confirmations:
+            message_id = confirmation.get('message_id')
+            if message_id:
+                try:
+                    message = await channel.fetch_message(message_id)
+                    await message.delete()
+                except discord.NotFound:
+                    # メッセージが既に削除されている場合は無視
+                    pass
+                except discord.Forbidden:
+                    # 削除権限がない場合
+                    print(f"No permission to delete confirmation message {message_id}")
+                except Exception as e:
+                    print(f"Error deleting confirmation message {message_id}: {str(e)}")
+                    
+    except Exception as e:
+        print(f"Error cleaning up confirmation messages: {str(e)}")

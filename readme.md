@@ -3,6 +3,7 @@
 # ClockInBot
 
 [注意]まだ開発中です。バグだらけ。
+また、近日中にWebダッシュボードを作ります。
 
 Discord上で動作する勤怠管理Bot
 
@@ -49,8 +50,6 @@ python -m src.bot
 |--------|------|-----|
 | `DISCORD_TOKEN` | Discord Bot Token | `MTIzNDU2Nzg5MA...` |
 | `DATABASE_URL` | PostgreSQL接続URI | `postgresql://user:pass@host:5432/db` |
-| `COMMAND_PREFIX` | コマンドプレフィックス (オプション) | `!` |
-| `DEBUG` | デバッグモード (オプション) | `False` |
 
 ## ライセンス
 
